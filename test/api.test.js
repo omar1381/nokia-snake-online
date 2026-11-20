@@ -401,41 +401,30 @@ test('serves PWA assets, handles HEAD requests, blocks path traversal, and enfor
   assert.equal(wrongLen.body.code, 'INVALID_LENGTH');
 });
 
-test('ships Google Analytics and Adsterra/AdSense banner integration cleanly', async () => {
+test('ships Google Analytics cleanly with zero ad scripts or ad slots', async () => {
   const html = await (await fetch(`${baseUrl}/`)).text();
   assert.match(html, /googletagmanager\.com\/gtag\/js\?id=G-CZQNFNC282/);
   assert.match(html, /google-config\.js/);
   assert.match(html, /google-tools\.js/);
   assert.match(html, /<h1[^>]*>[^<]*Nokia 3310[^<]*<\/h1>/);
-  assert.match(html, /id="adSlotPlay" class="ad-slot hidden"/);
-  assert.match(html, /id="adSlotBoard" class="ad-slot hidden"/);
+  assert.doesNotMatch(html, /adSlotPlay|adSlotBoard|adsbygoogle|bauval\.org|abscloud\.org/);
 
   const cfgRes = await fetch(`${baseUrl}/google-config.js`);
   assert.equal(cfgRes.status, 200);
   const cfg = await cfgRes.text();
   assert.match(cfg, /gaMeasurementId:\s*'G-CZQNFNC282'/);
-  assert.match(cfg, /adsenseClient/);
-  assert.match(cfg, /56e2816bafdeaff197557127db6d00c1/);
-  assert.match(cfg, /c1fc32364c6976c15a7cdb81b335c3f9/);
-  assert.match(cfg, /fa01832e4a5df0b7f2cce54d031fbbfc/);
-  assert.match(cfg, /42aa37c66fbc1795d07094d9be457c9a/);
+  assert.doesNotMatch(cfg, /adsterra|adsense|bauval\.org|abscloud\.org/i);
 
   const toolsRes = await fetch(`${baseUrl}/google-tools.js`);
   assert.equal(toolsRes.status, 200);
   const tools = await toolsRes.text();
   assert.match(tools, /googletagmanager\.com\/gtag\/js/);
-  assert.match(tools, /pagead2\.googlesyndication\.com/);
-  assert.match(tools, /frame\.srcdoc/);
-  assert.match(tools, /data-cfasync/);
-
-  const adsRes = await fetch(`${baseUrl}/ads.txt`);
-  assert.equal(adsRes.status, 200);
+  assert.doesNotMatch(tools, /googlesyndication|adsbygoogle|adsterra|bauval\.org|abscloud\.org/i);
 
   const privacy = await (await fetch(`${baseUrl}/privacy.html`)).text();
   assert.match(privacy, /Google Analytics/);
-  assert.match(privacy, /Adsterra/);
-  assert.match(privacy, /Google AdSense/);
-  assert.match(privacy, /adssettings\.google\.com/);
+  assert.match(privacy, /ad-free/i);
+  assert.doesNotMatch(privacy, /Adsterra|AdSense|bauval\.org|abscloud\.org/i);
 
   const sw = await (await fetch(`${baseUrl}/sw.js`)).text();
   assert.match(sw, /google-tools\.js/);
