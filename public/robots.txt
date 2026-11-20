@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://omar1381.github.io/nokia-snake-online/sitemap.xml

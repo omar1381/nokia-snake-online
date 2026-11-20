@@ -340,6 +340,18 @@ test('serves PWA assets, handles HEAD requests, blocks path traversal, and enfor
   assert.equal(iconRes.status, 200);
   assert.match(iconRes.headers.get('content-type') || '', /image\/svg\+xml/);
 
+  const robotsRes = await fetch(`${baseUrl}/robots.txt`);
+  assert.equal(robotsRes.status, 200);
+  assert.match(await robotsRes.text(), /Sitemap:/);
+
+  const sitemapRes = await fetch(`${baseUrl}/sitemap.xml`);
+  assert.equal(sitemapRes.status, 200);
+  assert.match(sitemapRes.headers.get('content-type') || '', /xml/);
+
+  const ogRes = await fetch(`${baseUrl}/og-image.png`);
+  assert.equal(ogRes.status, 200);
+  assert.match(ogRes.headers.get('content-type') || '', /image\/png/);
+
   const headRes = await fetch(`${baseUrl}/`, { method: 'HEAD' });
   assert.equal(headRes.status, 200);
   assert.equal(await headRes.text(), '');
