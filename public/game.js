@@ -197,43 +197,74 @@
 
   const lcdBaseLit = createLcdBaseCanvas(true);
   const lcdBaseDim = createLcdBaseCanvas(false);
+
+  // Subtle translucent 1px Nokia dot-matrix grid overlay drawn above the smooth snake
+  // so continuous 60 FPS motion keeps authentic Nokia 3310 liquid-crystal texture.
+  function createLcdGridMask(isLit) {
+    const off = document.createElement('canvas');
+    off.width = LCD_W * SCALE;
+    off.height = LCD_H * SCALE;
+    const octx = off.getContext('2d');
+    octx.fillStyle = isLit ? 'rgba(153, 201, 43, 0.42)' : 'rgba(148, 170, 108, 0.42)';
+    octx.beginPath();
+    for (let x = SCALE - 1; x < off.width; x += SCALE) {
+      octx.rect(x, 0, 1, off.height);
+    }
+    for (let y = SCALE - 1; y < off.height; y += SCALE) {
+      octx.rect(0, y, off.width, 1);
+    }
+    octx.fill();
+    return off;
+  }
+
+  const lcdGridMaskLit = createLcdGridMask(true);
+  const lcdGridMaskDim = createLcdGridMask(false);
+
+  // Offscreen cache for static playfield layer (HUD, borders, walls, food, bonus)
+  const playfieldCache = document.createElement('canvas');
+  playfieldCache.width = LCD_W * SCALE;
+  playfieldCache.height = LCD_H * SCALE;
+  const playfieldCtx = playfieldCache.getContext('2d');
+
   let lcdDirty = true;
+  let playfieldDirty = true;
 
   function markDirty() {
     lcdDirty = true;
+    playfieldDirty = true;
   }
 
-  function flushLCD() {
+  function flushLCD(targetCtx = ctx) {
     const shadowColor = backlightOn ? 'rgba(18, 40, 6, 0.16)' : 'rgba(20, 32, 12, 0.15)';
     const inkColor = backlightOn ? '#142608' : '#1b2613';
 
-    ctx.drawImage(backlightOn ? lcdBaseLit : lcdBaseDim, 0, 0);
+    targetCtx.drawImage(backlightOn ? lcdBaseLit : lcdBaseDim, 0, 0);
 
-    ctx.fillStyle = shadowColor;
-    ctx.beginPath();
+    targetCtx.fillStyle = shadowColor;
+    targetCtx.beginPath();
     for (let y = 0; y < LCD_H; y++) {
       const row = y * LCD_W;
       const py = y * SCALE + 1;
       for (let x = 0; x < LCD_W; x++) {
         if (fb[row + x]) {
-          ctx.rect(x * SCALE + 1, py, SCALE - 1, SCALE - 1);
+          targetCtx.rect(x * SCALE + 1, py, SCALE - 1, SCALE - 1);
         }
       }
     }
-    ctx.fill();
+    targetCtx.fill();
 
-    ctx.fillStyle = inkColor;
-    ctx.beginPath();
+    targetCtx.fillStyle = inkColor;
+    targetCtx.beginPath();
     for (let y = 0; y < LCD_H; y++) {
       const row = y * LCD_W;
       const py = y * SCALE;
       for (let x = 0; x < LCD_W; x++) {
         if (fb[row + x]) {
-          ctx.rect(x * SCALE, py, SCALE - 1, SCALE - 1);
+          targetCtx.rect(x * SCALE, py, SCALE - 1, SCALE - 1);
         }
       }
     }
-    ctx.fill();
+    targetCtx.fill();
   }
 
   // =========================================================================
@@ -449,6 +480,10 @@
   let didWin = false;
 
   let snake = [];
+  let prevSnake = [];
+  let grewThisStep = false;
+  let eatenFoodGhost = null;
+  let eatenBonusGhost = null;
   let dir = { dx: 1, dy: 0 };
   let dirQueue = [];
   let food = null;
@@ -518,6 +553,10 @@
     return items;
   }
 
+  function cloneSnake(list) {
+    return list.map((s) => ({ x: s.x, y: s.y, bulge: s.bulge }));
+  }
+
   function startNewGame() {
     rebuildWallSet();
     const m = MAZES[mazeIdx];
@@ -530,6 +569,10 @@
         bulge: false,
       });
     }
+    prevSnake = cloneSnake(snake);
+    grewThisStep = false;
+    eatenFoodGhost = null;
+    eatenBonusGhost = null;
     dir = { dx, dy };
     dirQueue = [];
     score = 0;
@@ -540,7 +583,7 @@
     isNewRecord = false;
     didWin = false;
     hasActiveGame = true;
-    stepAccumulator = 0;
+    stepAccumulator = stepMsForSpeed(START_SPEED) * 0.7;
     activePlayMs = 0;
     spawnFood();
     screen = 'PLAYING';
@@ -651,8 +694,16 @@
     if (hitsWall || hitsSelf) {
       if (!graceActive) {
         graceActive = true;
+        prevSnake = cloneSnake(snake);
+        grewThisStep = false;
+        eatenFoodGhost = null;
+        eatenBonusGhost = null;
         return;
       }
+      prevSnake = cloneSnake(snake);
+      grewThisStep = false;
+      eatenFoodGhost = null;
+      eatenBonusGhost = null;
       triggerGameOver(false);
       return;
     }
@@ -669,6 +720,11 @@
     );
 
     const shouldGrow = ateFood && (foodsEaten + 1) % APPLES_PER_GROWTH === 0;
+
+    prevSnake = cloneSnake(snake);
+    grewThisStep = shouldGrow;
+    eatenFoodGhost = ateFood ? { x: food.x, y: food.y } : null;
+    eatenBonusGhost = ateBonus ? { x: bonus.x, y: bonus.y, critterIdx: bonus.critterIdx } : null;
 
     snake.unshift({ x: nextPos.x, y: nextPos.y, bulge: ateFood || ateBonus });
 
@@ -775,87 +831,7 @@
     return false;
   }
 
-  function drawSnakeHead(cx, cy, dx, dy, open) {
-    const px = PLAY_OX + cx * 4;
-    const py = PLAY_OY + cy * 4;
-    let spr;
-    if (!open) {
-      if (dx === 1) spr = ['0100', '1111', '1111', '0000'];
-      else if (dx === -1) spr = ['0010', '1111', '1111', '0000'];
-      else if (dy === -1) spr = ['0110', '0110', '1110', '0110'];
-      else spr = ['0110', '1110', '0110', '0110'];
-    } else {
-      if (dx === 1) spr = ['0111', '1100', '1100', '0111'];
-      else if (dx === -1) spr = ['1110', '0011', '0011', '1110'];
-      else if (dy === -1) spr = ['1001', '1001', '1110', '0110'];
-      else spr = ['0110', '1110', '1001', '1001'];
-    }
-    drawSprite(spr, px, py, 1);
-  }
-
-  function drawSnakeTail(cx, cy, toPrevDx, toPrevDy) {
-    const px = PLAY_OX + cx * 4;
-    const py = PLAY_OY + cy * 4;
-    let spr;
-    if (toPrevDx === 1) spr = ['0000', '0011', '0111', '0000'];
-    else if (toPrevDx === -1) spr = ['0000', '1100', '1110', '0000'];
-    else if (toPrevDy === 1) spr = ['0000', '0100', '0110', '0110'];
-    else spr = ['0110', '0110', '0010', '0000'];
-    drawSprite(spr, px, py, 1);
-  }
-
-  function drawSnakeBody(seg, prev, next, index) {
-    const px = PLAY_OX + seg.x * 4;
-    const py = PLAY_OY + seg.y * 4;
-
-    if (seg.bulge) {
-      drawSprite(['0110', '1111', '1111', '0110'], px, py, 1);
-      return;
-    }
-
-    const dx1 = wrappedDelta(seg.x, prev.x, GRID_W);
-    const dy1 = wrappedDelta(seg.y, prev.y, GRID_H);
-    const dx2 = wrappedDelta(seg.x, next.x, GRID_W);
-    const dy2 = wrappedDelta(seg.y, next.y, GRID_H);
-
-    if (dy1 === 0 && dy2 === 0) {
-      const spr = index % 2 === 0
-        ? ['0000', '1101', '1011', '0000']
-        : ['0000', '1011', '1101', '0000'];
-      drawSprite(spr, px, py, 1);
-      return;
-    }
-
-    if (dx1 === 0 && dx2 === 0) {
-      const spr = index % 2 === 0
-        ? ['0110', '0100', '0010', '0110']
-        : ['0110', '0010', '0100', '0110'];
-      drawSprite(spr, px, py, 1);
-      return;
-    }
-
-    const hasL = dx1 === -1 || dx2 === -1;
-    const hasR = dx1 === 1 || dx2 === 1;
-    const hasU = dy1 === -1 || dy2 === -1;
-    const hasD = dy1 === 1 || dy2 === 1;
-
-    setPx(px + 1, py + 1, 1);
-    setPx(px + 2, py + 1, 1);
-    setPx(px + 1, py + 2, 1);
-    setPx(px + 2, py + 2, 1);
-
-    if (hasL) { setPx(px, py + 1, 1); setPx(px, py + 2, 1); }
-    if (hasR) { setPx(px + 3, py + 1, 1); setPx(px + 3, py + 2, 1); }
-    if (hasU) { setPx(px + 1, py, 1); setPx(px + 2, py, 1); }
-    if (hasD) { setPx(px + 1, py + 3, 1); setPx(px + 2, py + 3, 1); }
-
-    if (hasL && hasU) setPx(px + 2, py + 2, 0);
-    if (hasR && hasU) setPx(px + 1, py + 2, 0);
-    if (hasL && hasD) setPx(px + 2, py + 1, 0);
-    if (hasR && hasD) setPx(px + 1, py + 1, 0);
-  }
-
-  function renderPlayfield(showSnake = true) {
+  function renderPlayfieldStatic() {
     // Top-left: 4-digit score
     const scoreStr = String(score).padStart(4, '0');
     drawText(scoreStr, 2, 0, 1, FONT_3X5);
@@ -897,19 +873,229 @@
     if (bonus) {
       drawSprite(CRITTERS[bonus.critterIdx], PLAY_OX + bonus.x * 4, PLAY_OY + bonus.y * 4, 1);
     }
+  }
+
+  function rebuildPlayfieldCache() {
+    clearFB();
+    renderPlayfieldStatic();
+    flushLCD(playfieldCtx);
+    playfieldDirty = false;
+  }
+
+  const CELL_PX = 4 * SCALE; // 24 canvas px per grid cell
+  const PF_X = PLAY_OX * SCALE;
+  const PF_Y = PLAY_OY * SCALE;
+  const PF_W = GRID_W * CELL_PX;
+  const PF_H = GRID_H * CELL_PX;
+  const BODY_W = 2 * SCALE; // 12 canvas px (2 authentic LCD pixels thick)
+  const HALF_BODY = BODY_W / 2;
+  const BULGE_SPRITE = ['0110', '1111', '1111', '0110'];
+
+  function getHeadSprite(dx, dy, open) {
+    if (!open) {
+      if (dx === 1) return ['0100', '1111', '1111', '0000'];
+      if (dx === -1) return ['0010', '1111', '1111', '0000'];
+      if (dy === -1) return ['0110', '0110', '1110', '0110'];
+      return ['0110', '1110', '0110', '0110'];
+    }
+    if (dx === 1) return ['0111', '1100', '1100', '0111'];
+    if (dx === -1) return ['1110', '0011', '0011', '1110'];
+    if (dy === -1) return ['1001', '1001', '1110', '0110'];
+    return ['0110', '1110', '1001', '1001'];
+  }
+
+  function getTailSprite(toPrevDx, toPrevDy) {
+    if (toPrevDx === 1) return ['0000', '0011', '0111', '0000'];
+    if (toPrevDx === -1) return ['0000', '1100', '1110', '0000'];
+    if (toPrevDy === 1) return ['0000', '0100', '0110', '0110'];
+    return ['0110', '0110', '0010', '0000'];
+  }
+
+  function addSpritePath(target, spriteRows, cellX, cellY, ox, oy) {
+    const bx = PF_X + cellX * CELL_PX + ox;
+    const by = PF_Y + cellY * CELL_PX + oy;
+    for (let r = 0; r < spriteRows.length; r++) {
+      for (let c = 0; c < spriteRows[r].length; c++) {
+        if (spriteRows[r][c] === '1') {
+          target.rect(bx + c * SCALE, by + r * SCALE, SCALE, SCALE);
+        }
+      }
+    }
+  }
+
+  function addSegmentBarPath(target, ax, ay, bx, by, padStart, padEnd, ox, oy) {
+    const cx1 = PF_X + ax * CELL_PX + CELL_PX / 2 + ox;
+    const cy1 = PF_Y + ay * CELL_PX + CELL_PX / 2 + oy;
+    const cx2 = PF_X + bx * CELL_PX + CELL_PX / 2 + ox;
+    const cy2 = PF_Y + by * CELL_PX + CELL_PX / 2 + oy;
+
+    if (Math.abs(cx2 - cx1) < 0.01 && Math.abs(cy2 - cy1) < 0.01) {
+      return;
+    }
+
+    if (Math.abs(cy1 - cy2) < 0.01) {
+      let x0;
+      let x1;
+      if (cx2 >= cx1) {
+        x0 = cx1 - (padStart ? HALF_BODY : 0);
+        x1 = cx2 + (padEnd ? HALF_BODY : 0);
+      } else {
+        x0 = cx2 - (padEnd ? HALF_BODY : 0);
+        x1 = cx1 + (padStart ? HALF_BODY : 0);
+      }
+      if (x1 > x0) target.rect(x0, cy1 - HALF_BODY, x1 - x0, BODY_W);
+    } else {
+      let y0;
+      let y1;
+      if (cy2 >= cy1) {
+        y0 = cy1 - (padStart ? HALF_BODY : 0);
+        y1 = cy2 + (padEnd ? HALF_BODY : 0);
+      } else {
+        y0 = cy2 - (padEnd ? HALF_BODY : 0);
+        y1 = cy1 + (padStart ? HALF_BODY : 0);
+      }
+      if (y1 > y0) target.rect(cx1 - HALF_BODY, y0, BODY_W, y1 - y0);
+    }
+  }
+
+  function buildSmoothSnakePath(target, t, ox, oy) {
+    if (snake.length === 0) return;
+
+    // Ghost apple/critter stays visible briefly until the gliding mouth swallows it
+    if (eatenFoodGhost && t < 0.62) {
+      addSpritePath(target, FOOD_SPRITE, eatenFoodGhost.x, eatenFoodGhost.y, ox, oy);
+    }
+    if (eatenBonusGhost && t < 0.62) {
+      addSpritePath(target, CRITTERS[eatenBonusGhost.critterIdx], eatenBonusGhost.x, eatenBonusGhost.y, ox, oy);
+    }
+
+    const hasPrev = prevSnake.length > 0;
+    const prevHead = hasPrev ? prevSnake[0] : snake[0];
+    const head = snake[0];
+    const hdx = wrappedDelta(prevHead.x, head.x, GRID_W);
+    const hdy = wrappedDelta(prevHead.y, head.y, GRID_H);
+    const headMoved = hdx !== 0 || hdy !== 0;
+
+    // 1. Head & neck glide (prevHead -> head) with seamless wrap-around copies
+    const mouthOpen =
+      (eatenFoodGhost && t < 0.72) ||
+      (eatenBonusGhost && t < 0.72) ||
+      (t > 0.35 && isMouthOpen());
+    const headSpr = getHeadSprite(dir.dx, dir.dy, mouthOpen);
+
+    if (headMoved) {
+      const hx1 = prevHead.x + hdx * t;
+      const hy1 = prevHead.y + hdy * t;
+      addSegmentBarPath(target, prevHead.x, prevHead.y, hx1, hy1, true, false, ox, oy);
+      addSpritePath(target, headSpr, hx1, hy1, ox, oy);
+
+      // If wrapping across a board edge, also draw emerging copy from opposite edge
+      if (prevHead.x + hdx !== head.x || prevHead.y + hdy !== head.y) {
+        const startX = head.x - hdx;
+        const startY = head.y - hdy;
+        const hx2 = startX + hdx * t;
+        const hy2 = startY + hdy * t;
+        addSegmentBarPath(target, startX, startY, hx2, hy2, true, false, ox, oy);
+        addSpritePath(target, headSpr, hx2, hy2, ox, oy);
+      }
+    } else {
+      addSpritePath(target, headSpr, head.x, head.y, ox, oy);
+      if (snake.length > 1) {
+        const neck = snake[1];
+        const ndx = wrappedDelta(neck.x, head.x, GRID_W);
+        const ndy = wrappedDelta(neck.y, head.y, GRID_H);
+        addSegmentBarPath(target, neck.x, neck.y, neck.x + ndx, neck.y + ndy, true, false, ox, oy);
+        if (neck.x + ndx !== head.x || neck.y + ndy !== head.y) {
+          addSegmentBarPath(target, head.x - ndx, head.y - ndy, head.x, head.y, true, false, ox, oy);
+        }
+      }
+    }
+
+    // 2. Interior body bars (locked crisply to grid corners — never cuts corners)
+    const slidingTail = headMoved && !grewThisStep && prevSnake.length > 0;
+    const lastFullIdx = slidingTail ? snake.length - 1 : snake.length - 2;
+
+    for (let i = 1; i < lastFullIdx; i++) {
+      const a = snake[i];
+      const b = snake[i + 1];
+      const dx = wrappedDelta(a.x, b.x, GRID_W);
+      const dy = wrappedDelta(a.y, b.y, GRID_H);
+      addSegmentBarPath(target, a.x, a.y, a.x + dx, a.y + dy, true, true, ox, oy);
+      if (a.x + dx !== b.x || a.y + dy !== b.y) {
+        addSegmentBarPath(target, b.x - dx, b.y - dy, b.x, b.y, true, true, ox, oy);
+      }
+    }
+
+    // 3. Tail glide (or anchored tail when growing / stationary)
+    if (snake.length > 1) {
+      const tailAnchor = snake[snake.length - 1];
+      if (slidingTail) {
+        const prevTail = prevSnake[prevSnake.length - 1];
+        const tdx = wrappedDelta(prevTail.x, tailAnchor.x, GRID_W);
+        const tdy = wrappedDelta(prevTail.y, tailAnchor.y, GRID_H);
+        const tailSpr = getTailSprite(tdx, tdy);
+        const tx1 = prevTail.x + tdx * t;
+        const ty1 = prevTail.y + tdy * t;
+        addSegmentBarPath(target, tx1, ty1, prevTail.x + tdx, prevTail.y + tdy, false, true, ox, oy);
+        addSpritePath(target, tailSpr, tx1, ty1, ox, oy);
+
+        if (prevTail.x + tdx !== tailAnchor.x || prevTail.y + tdy !== tailAnchor.y) {
+          const wrapStartX = tailAnchor.x - tdx;
+          const wrapStartY = tailAnchor.y - tdy;
+          const tx2 = wrapStartX + tdx * t;
+          const ty2 = wrapStartY + tdy * t;
+          addSegmentBarPath(target, tx2, ty2, tailAnchor.x, tailAnchor.y, false, true, ox, oy);
+          addSpritePath(target, tailSpr, tx2, ty2, ox, oy);
+        }
+      } else {
+        const beforeTail = snake[snake.length - 2];
+        const tdx = wrappedDelta(tailAnchor.x, beforeTail.x, GRID_W);
+        const tdy = wrappedDelta(tailAnchor.y, beforeTail.y, GRID_H);
+        const tailSpr = getTailSprite(tdx, tdy);
+        addSegmentBarPath(target, beforeTail.x, beforeTail.y, beforeTail.x - tdx, beforeTail.y - tdy, true, false, ox, oy);
+        if (beforeTail.x - tdx !== tailAnchor.x || beforeTail.y - tdy !== tailAnchor.y) {
+          addSegmentBarPath(target, tailAnchor.x + tdx, tailAnchor.y + tdy, tailAnchor.x, tailAnchor.y, true, false, ox, oy);
+        }
+        addSpritePath(target, tailSpr, tailAnchor.x, tailAnchor.y, ox, oy);
+      }
+    }
+
+    // 4. Bulging belly segments (digested food traveling down the body)
+    for (let i = 1; i < snake.length - 1; i++) {
+      if (snake[i].bulge) {
+        addSpritePath(target, BULGE_SPRITE, snake[i].x, snake[i].y, ox, oy);
+      }
+    }
+  }
+
+  function renderSmoothPlayfield(showSnake, t) {
+    if (playfieldDirty) {
+      rebuildPlayfieldCache();
+    }
+
+    ctx.drawImage(playfieldCache, 0, 0);
 
     if (showSnake && snake.length > 0) {
-      drawSnakeHead(snake[0].x, snake[0].y, dir.dx, dir.dy, isMouthOpen());
-      for (let i = 1; i < snake.length - 1; i++) {
-        drawSnakeBody(snake[i], snake[i - 1], snake[i + 1], i);
-      }
-      if (snake.length > 1) {
-        const tail = snake[snake.length - 1];
-        const beforeTail = snake[snake.length - 2];
-        const tdx = wrappedDelta(tail.x, beforeTail.x, GRID_W);
-        const tdy = wrappedDelta(tail.y, beforeTail.y, GRID_H);
-        drawSnakeTail(tail.x, tail.y, tdx, tdy);
-      }
+      const shadowColor = backlightOn ? 'rgba(18, 40, 6, 0.16)' : 'rgba(20, 32, 12, 0.15)';
+      const inkColor = backlightOn ? '#142608' : '#1b2613';
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(PF_X, PF_Y, PF_W, PF_H);
+      ctx.clip();
+
+      ctx.fillStyle = shadowColor;
+      ctx.beginPath();
+      buildSmoothSnakePath(ctx, t, 1, 1);
+      ctx.fill();
+
+      ctx.fillStyle = inkColor;
+      ctx.beginPath();
+      buildSmoothSnakePath(ctx, t, 0, 0);
+      ctx.fill();
+
+      ctx.drawImage(backlightOn ? lcdGridMaskLit : lcdGridMaskDim, 0, 0);
+      ctx.restore();
     }
   }
 
@@ -1015,14 +1201,22 @@
   }
 
   function render() {
+    if (screen === 'PLAYING') {
+      const stepMs = stepMsForSpeed(currentSpeed);
+      const t = graceActive ? 1 : Math.max(0, Math.min(1, stepAccumulator / stepMs));
+      renderSmoothPlayfield(true, t);
+      return;
+    }
+    if (screen === 'DYING') {
+      renderSmoothPlayfield(dyingFlashCount % 2 === 1, 1);
+      return;
+    }
     clearFB();
     switch (screen) {
       case 'SPLASH': renderSplash(); break;
       case 'MENU': renderMenu(); break;
       case 'MAZE': renderMazeSelect(); break;
       case 'TOP_SCORE': renderTopScore(); break;
-      case 'PLAYING': renderPlayfield(true); break;
-      case 'DYING': renderPlayfield(dyingFlashCount % 2 === 1); break;
       case 'GAME_OVER': renderGameOver(); break;
     }
     flushLCD();
@@ -1034,7 +1228,7 @@
   let lastSplashPhase = -1;
 
   function loop(now) {
-    const dt = Math.min(100, now - lastFrameTime);
+    const dt = Math.min(100, Math.max(0, now - lastFrameTime));
     lastFrameTime = now;
 
     if (screen === 'SPLASH') {
@@ -1051,9 +1245,11 @@
       while (stepAccumulator >= stepMs && screen === 'PLAYING') {
         stepAccumulator -= stepMs;
         stepGame();
-        markDirty();
+        playfieldDirty = true;
         stepMs = stepMsForSpeed(currentSpeed);
       }
+      // Render every animation frame during active gameplay for 60/120 FPS continuous glide
+      lcdDirty = true;
     } else if (screen === 'DYING') {
       dyingTimer += dt;
       if (dyingTimer >= 165) {
@@ -1139,7 +1335,7 @@
         const chosen = items[menuIndex].id;
         if (chosen === 'continue') {
           screen = 'PLAYING';
-          stepAccumulator = 0;
+          lastFrameTime = performance.now();
           markDirty();
           notifyPlayState(true);
         } else if (chosen === 'new') {
@@ -1154,7 +1350,7 @@
       } else if (action === 'BACK' && hasActiveGame) {
         SFX.key();
         screen = 'PLAYING';
-        stepAccumulator = 0;
+        lastFrameTime = performance.now();
         markDirty();
         notifyPlayState(true);
       }
