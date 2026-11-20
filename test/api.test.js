@@ -401,8 +401,9 @@ test('serves PWA assets, handles HEAD requests, blocks path traversal, and enfor
   assert.equal(wrongLen.body.code, 'INVALID_LENGTH');
 });
 
-test('ships Google Analytics / AdSense integration that stays off until configured', async () => {
+test('ships Google Analytics and Adsterra/AdSense banner integration cleanly', async () => {
   const html = await (await fetch(`${baseUrl}/`)).text();
+  assert.match(html, /googletagmanager\.com\/gtag\/js\?id=G-CZQNFNC282/);
   assert.match(html, /google-config\.js/);
   assert.match(html, /google-tools\.js/);
   assert.match(html, /<h1[^>]*>[^<]*Nokia 3310[^<]*<\/h1>/);
@@ -412,20 +413,24 @@ test('ships Google Analytics / AdSense integration that stays off until configur
   const cfgRes = await fetch(`${baseUrl}/google-config.js`);
   assert.equal(cfgRes.status, 200);
   const cfg = await cfgRes.text();
-  assert.match(cfg, /gaMeasurementId/);
+  assert.match(cfg, /gaMeasurementId:\s*'G-CZQNFNC282'/);
   assert.match(cfg, /adsenseClient/);
+  assert.match(cfg, /56e2816bafdeaff197557127db6d00c1/);
+  assert.match(cfg, /c1fc32364c6976c15a7cdb81b335c3f9/);
 
   const toolsRes = await fetch(`${baseUrl}/google-tools.js`);
   assert.equal(toolsRes.status, 200);
   const tools = await toolsRes.text();
   assert.match(tools, /googletagmanager\.com\/gtag\/js/);
   assert.match(tools, /pagead2\.googlesyndication\.com/);
+  assert.match(tools, /frame\.srcdoc/);
 
   const adsRes = await fetch(`${baseUrl}/ads.txt`);
   assert.equal(adsRes.status, 200);
 
   const privacy = await (await fetch(`${baseUrl}/privacy.html`)).text();
   assert.match(privacy, /Google Analytics/);
+  assert.match(privacy, /Adsterra/);
   assert.match(privacy, /Google AdSense/);
   assert.match(privacy, /adssettings\.google\.com/);
 

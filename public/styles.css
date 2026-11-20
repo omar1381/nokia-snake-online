@@ -223,18 +223,29 @@ body {
   text-decoration: underline;
 }
 
-/* Ad slots — only shown once AdSense is configured; reserve height to avoid layout jumps */
+/* Ad slots — only shown once ads are configured; centered and isolated from gameplay */
 .ad-slot {
   background: var(--surface);
   border: 1px dashed var(--border);
   border-radius: 14px;
   padding: 8px;
-  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
 }
 
 .ad-slot.hidden {
   display: none;
+}
+
+.ad-frame {
+  display: block;
+  border: 0;
+  max-width: 100%;
+  background: transparent;
+  overflow: hidden;
 }
 
 .ad-label {
@@ -243,12 +254,18 @@ body {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   text-align: center;
 }
 
 #adSlotBoard {
   margin-top: 16px;
+}
+
+@media (max-width: 783px) {
+  .ad-slot.ad-wide {
+    display: none;
+  }
 }
 
 /* About / How to play */
