@@ -56,8 +56,8 @@ function readJsonBody(req, maxBytes = 16 * 1024) {
   });
 }
 
-function createServer({ dataDir } = {}) {
-  const store = createStore(dataDir);
+function createServer({ dataDir, supabaseUrl, supabaseKey, fetchImpl } = {}) {
+  const store = createStore({ dataDir, supabaseUrl, supabaseKey, fetchImpl });
   const sseClients = new Set();
 
   function broadcast(eventName, data) {
@@ -116,7 +116,7 @@ function createServer({ dataDir } = {}) {
     try {
       // Health check
       if (req.method === 'GET' && pathname === '/api/health') {
-        return sendJson(res, 200, { ok: true, time: Date.now() });
+        return sendJson(res, 200, { ok: true, storage: store.storageMode, time: Date.now() });
       }
 
       // Live SSE stream
@@ -135,7 +135,7 @@ function createServer({ dataDir } = {}) {
       // Register / verify player nickname
       if (req.method === 'POST' && pathname === '/api/players') {
         const body = await readJsonBody(req);
-        const summary = store.registerPlayer(body.name, body.playerKey);
+        const summary = await store.registerPlayer(body.name, body.playerKey);
         return sendJson(res, 200, summary);
       }
 
@@ -145,20 +145,20 @@ function createServer({ dataDir } = {}) {
         if (!name.trim()) {
           return sendJson(res, 200, { name: null, bestScore: null, globalRank: null, gamesPlayed: 0 });
         }
-        return sendJson(res, 200, store.getPlayerSummary(name.trim()));
+        return sendJson(res, 200, await store.getPlayerSummary(name.trim()));
       }
 
       // Start a validated game run
       if (req.method === 'POST' && pathname === '/api/runs/start') {
         const body = await readJsonBody(req);
-        const run = store.startRun(body.maze ?? 0);
+        const run = await store.startRun(body.maze ?? 0);
         return sendJson(res, 201, run);
       }
 
       // Submit a finished game score
       if (req.method === 'POST' && pathname === '/api/scores') {
         const body = await readJsonBody(req);
-        const result = store.submitScore(body);
+        const result = await store.submitScore(body);
         broadcast('score', {
           entry: result.entry,
           isWorldRecord: result.isWorldRecord,
@@ -172,7 +172,7 @@ function createServer({ dataDir } = {}) {
         const maze = url.searchParams.get('maze') || 'all';
         const search = url.searchParams.get('search') || '';
         const limit = url.searchParams.get('limit') || '100';
-        const data = store.getLeaderboard({ period, maze, search, limit });
+        const data = await store.getLeaderboard({ period, maze, search, limit });
         return sendJson(res, 200, data);
       }
 
@@ -211,9 +211,16 @@ function createServer({ dataDir } = {}) {
 if (require.main === module) {
   const PORT = Number(process.env.PORT) || 3000;
   const HOST = process.env.HOST || '0.0.0.0';
-  const server = createServer({ dataDir: process.env.DATA_DIR });
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
+  const server = createServer({
+    dataDir: process.env.DATA_DIR,
+    supabaseUrl,
+    supabaseKey,
+  });
   server.listen(PORT, HOST, () => {
-    console.log(`Nokia 3310 Snake II Online running at http://localhost:${PORT}`);
+    const mode = supabaseUrl && supabaseKey ? 'supabase' : 'file';
+    console.log(`Nokia 3310 Snake II Online running at http://localhost:${PORT} (storage: ${mode})`);
   });
 }
 

@@ -181,4 +181,151 @@ test('validates runs, progressive speed, and updates Top Players leaderboard', a
   const search = await jsonReq('/api/leaderboard?search=kaito');
   assert.equal(search.body.rankings.length, 1);
   assert.equal(search.body.rankings[0].rank, 2);
+
+  // Health reports file storage mode
+  const health = await jsonReq('/api/health');
+  assert.equal(health.status, 200);
+  assert.equal(health.body.storage, 'file');
+});
+
+test('supports Supabase REST backend and persists scores across restarts', async () => {
+  const playersTable = new Map();
+  const scoresTable = [];
+
+  // Lightweight in-memory PostgREST mock for Supabase /rest/v1/players and /rest/v1/scores
+  const mockSupabaseFetch = async (urlStr, opts = {}) => {
+    const u = new URL(urlStr);
+    const method = (opts.method || 'GET').toUpperCase();
+    const headers = opts.headers || {};
+
+    assert.equal(headers.apikey, 'test-service-role-key');
+    assert.equal(headers.Authorization, 'Bearer test-service-role-key');
+
+    const jsonRes = (status, data) => ({
+      ok: status >= 200 && status < 300,
+      status,
+      text: async () => (data === undefined ? '' : JSON.stringify(data)),
+    });
+
+    if (u.pathname === '/rest/v1/players') {
+      if (method === 'GET') {
+        const eq = u.searchParams.get('name_lower') || '';
+        const lower = eq.replace(/^eq\./, '');
+        const row = playersTable.get(lower);
+        return jsonRes(200, row ? [row] : []);
+      }
+      if (method === 'POST') {
+        const row = JSON.parse(opts.body);
+        if (playersTable.has(row.name_lower)) {
+          return jsonRes(409, { code: '23505', message: 'duplicate key' });
+        }
+        playersTable.set(row.name_lower, row);
+        return jsonRes(201, undefined);
+      }
+      if (method === 'PATCH') {
+        const eq = u.searchParams.get('name_lower') || '';
+        const lower = eq.replace(/^eq\./, '');
+        const existing = playersTable.get(lower);
+        if (existing) {
+          Object.assign(existing, JSON.parse(opts.body));
+        }
+        return jsonRes(204, undefined);
+      }
+    }
+
+    if (u.pathname === '/rest/v1/scores') {
+      if (method === 'GET') {
+        const range = headers.Range || '0-999';
+        const [start, end] = range.split('-').map(Number);
+        const sorted = [...scoresTable].sort((a, b) => a.created_at - b.created_at);
+        return jsonRes(200, sorted.slice(start, end + 1));
+      }
+      if (method === 'POST') {
+        scoresTable.push(JSON.parse(opts.body));
+        return jsonRes(201, undefined);
+      }
+    }
+
+    return jsonRes(404, { message: 'not found' });
+  };
+
+  async function withSupaServer(fn) {
+    const srv = createServer({
+      supabaseUrl: 'https://demo.supabase.co',
+      supabaseKey: 'test-service-role-key',
+      fetchImpl: mockSupabaseFetch,
+    });
+    await new Promise((resolve) => srv.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${srv.address().port}`;
+    const req = async (p, o = {}) => {
+      const r = await fetch(`${url}${p}`, {
+        headers: { 'Content-Type': 'application/json', ...(o.headers || {}) },
+        ...o,
+      });
+      return { status: r.status, body: await r.json() };
+    };
+    try {
+      await fn(req);
+    } finally {
+      await new Promise((resolve) => srv.close(resolve));
+    }
+  }
+
+  // First server instance: register player & submit score
+  await withSupaServer(async (req) => {
+    const health = await req('/api/health');
+    assert.equal(health.body.storage, 'supabase');
+
+    const reg = await req('/api/players', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Omar', playerKey: 'omar-secret-key-12345' }),
+    });
+    assert.equal(reg.status, 200);
+    assert.equal(reg.body.name, 'Omar');
+
+    // Hijack attempt blocked
+    const hijack = await req('/api/players', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'omar', playerKey: 'wrong-secret-key-9999' }),
+    });
+    assert.equal(hijack.status, 409);
+
+    const run = await req('/api/runs/start', {
+      method: 'POST',
+      body: JSON.stringify({ maze: 2 }),
+    });
+    assert.equal(run.status, 201);
+
+    const sub = await req('/api/scores', {
+      method: 'POST',
+      body: JSON.stringify({
+        runId: run.body.runId,
+        name: 'Omar',
+        playerKey: 'omar-secret-key-12345',
+        score: 12,
+        foods: 8,
+        length: 13,
+        topSpeed: 3,
+        maze: 2,
+        durationMs: 18000,
+      }),
+    });
+    assert.equal(sub.status, 201);
+    assert.equal(sub.body.isWorldRecord, true);
+    assert.equal(sub.body.globalRank, 1);
+  });
+
+  // Second fresh server instance (simulates Render restart): scores persist!
+  await withSupaServer(async (req) => {
+    const lb = await req('/api/leaderboard');
+    assert.equal(lb.status, 200);
+    assert.equal(lb.body.stats.totalPlayers, 1);
+    assert.equal(lb.body.stats.worldRecord.name, 'Omar');
+    assert.equal(lb.body.stats.worldRecord.score, 12);
+
+    const me = await req('/api/players/me?name=Omar');
+    assert.equal(me.status, 200);
+    assert.equal(me.body.bestScore, 12);
+    assert.equal(me.body.globalRank, 1);
+  });
 });

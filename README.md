@@ -22,7 +22,9 @@ Open `http://localhost:3000` to play, or `http://localhost:3000/leaderboard` for
 
 - `PORT` — HTTP port (default: `3000`)
 - `HOST` — Bind address (default: `0.0.0.0`)
-- `DATA_DIR` — Directory for `db.json` persistence (default: `./data`)
+- `DATA_DIR` — Directory for local `db.json` persistence when Supabase is not configured (default: `./data`)
+- `SUPABASE_URL` — Supabase project URL (e.g. `https://<project-ref>.supabase.co`)
+- `SUPABASE_SERVICE_ROLE_KEY` — Supabase `service_role` (or `sb_secret_...`) key. When both `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set, scores and players are stored permanently in Supabase PostgreSQL (run `supabase/schema.sql` once in the Supabase SQL Editor).
 
 ## Controls
 
