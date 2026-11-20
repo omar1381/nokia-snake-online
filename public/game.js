@@ -10,7 +10,7 @@
   const fb = new Uint8Array(LCD_W * LCD_H);
 
   const canvas = document.getElementById('lcd');
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { alpha: false });
   const lcdGlass = document.getElementById('lcdGlass');
 
   let backlightOn = true;
@@ -198,33 +198,11 @@
   const lcdBaseLit = createLcdBaseCanvas(true);
   const lcdBaseDim = createLcdBaseCanvas(false);
 
-  // Subtle translucent 1px Nokia dot-matrix grid overlay drawn above the smooth snake
-  // so continuous 60 FPS motion keeps authentic Nokia 3310 liquid-crystal texture.
-  function createLcdGridMask(isLit) {
-    const off = document.createElement('canvas');
-    off.width = LCD_W * SCALE;
-    off.height = LCD_H * SCALE;
-    const octx = off.getContext('2d');
-    octx.fillStyle = isLit ? 'rgba(153, 201, 43, 0.42)' : 'rgba(148, 170, 108, 0.42)';
-    octx.beginPath();
-    for (let x = SCALE - 1; x < off.width; x += SCALE) {
-      octx.rect(x, 0, 1, off.height);
-    }
-    for (let y = SCALE - 1; y < off.height; y += SCALE) {
-      octx.rect(0, y, off.width, 1);
-    }
-    octx.fill();
-    return off;
-  }
-
-  const lcdGridMaskLit = createLcdGridMask(true);
-  const lcdGridMaskDim = createLcdGridMask(false);
-
   // Offscreen cache for static playfield layer (HUD, borders, walls, food, bonus)
   const playfieldCache = document.createElement('canvas');
   playfieldCache.width = LCD_W * SCALE;
   playfieldCache.height = LCD_H * SCALE;
-  const playfieldCtx = playfieldCache.getContext('2d');
+  const playfieldCtx = playfieldCache.getContext('2d', { alpha: false });
 
   let lcdDirty = true;
   let playfieldDirty = true;
@@ -353,8 +331,8 @@
   const APPLES_PER_GROWTH = 2; // +1 segment every 2 apples for slower, smoother elongation
 
   function stepMsForSpeed(spd) {
-    // Comfortable Nokia start (300ms/step), speeding up gently (~3.5% per tier) down to 88ms
-    return Math.max(88, Math.round(300 * Math.pow(0.965, spd - 1)));
+    // Snappy start (255ms/step) with faster progressive acceleration (~5.5% per tier) down to 76ms
+    return Math.max(76, Math.round(255 * Math.pow(0.945, spd - 1)));
   }
 
   function buildMazes() {
@@ -480,10 +458,6 @@
   let didWin = false;
 
   let snake = [];
-  let prevSnake = [];
-  let grewThisStep = false;
-  let eatenFoodGhost = null;
-  let eatenBonusGhost = null;
   let dir = { dx: 1, dy: 0 };
   let dirQueue = [];
   let food = null;
@@ -553,10 +527,6 @@
     return items;
   }
 
-  function cloneSnake(list) {
-    return list.map((s) => ({ x: s.x, y: s.y, bulge: s.bulge }));
-  }
-
   function startNewGame() {
     rebuildWallSet();
     const m = MAZES[mazeIdx];
@@ -569,10 +539,6 @@
         bulge: false,
       });
     }
-    prevSnake = cloneSnake(snake);
-    grewThisStep = false;
-    eatenFoodGhost = null;
-    eatenBonusGhost = null;
     dir = { dx, dy };
     dirQueue = [];
     score = 0;
@@ -583,8 +549,9 @@
     isNewRecord = false;
     didWin = false;
     hasActiveGame = true;
-    stepAccumulator = stepMsForSpeed(START_SPEED) * 0.7;
+    stepAccumulator = 0;
     activePlayMs = 0;
+    lastFrameTime = performance.now();
     spawnFood();
     screen = 'PLAYING';
     markDirty();
@@ -644,15 +611,54 @@
     SFX.bonusSpawn();
   }
 
+  function getNeckDir() {
+    if (snake.length < 2) return dir;
+    return {
+      dx: wrappedDelta(snake[1].x, snake[0].x, GRID_W),
+      dy: wrappedDelta(snake[1].y, snake[0].y, GRID_H),
+    };
+  }
+
+  function predictMove(moveDir) {
+    const nextPos = computeNextHead(moveDir);
+    const hitsWall = !nextPos || wallSet.has(keyOf(nextPos.x, nextPos.y));
+    let hitsSelf = false;
+    if (nextPos) {
+      for (let i = 0; i < snake.length - 1; i++) {
+        if (snake[i].x === nextPos.x && snake[i].y === nextPos.y) {
+          hitsSelf = true;
+          break;
+        }
+      }
+    }
+    return { nextPos, blocked: hitsWall || hitsSelf };
+  }
+
   function queueDirection(ndx, ndy) {
-    if (graceActive) {
-      if (dir.dx === -ndx && dir.dy === -ndy) return;
-      dirQueue = [{ dx: ndx, dy: ndy }];
-      // Make escaping a wall during grace period feel snappy instead of waiting a full tick
-      const stepMs = stepMsForSpeed(currentSpeed);
-      stepAccumulator = Math.max(stepAccumulator, stepMs - 45);
+    const neck = getNeckDir();
+    const currentPred = predictMove(dir);
+
+    // Instant escape if paused at a wall/self or during grace period
+    if (graceActive || currentPred.blocked) {
+      if (neck.dx === -ndx && neck.dy === -ndy) return;
+      if (dir.dx === ndx && dir.dy === ndy) return;
+      dir = { dx: ndx, dy: ndy };
+      dirQueue = [];
+      graceActive = false;
+      stepAccumulator = 0;
       return;
     }
+
+    // Early-turn forgiveness: if the head just entered this cell (< 28% across),
+    // steer immediately on the spot for zero-latency cornering.
+    const stepMs = stepMsForSpeed(currentSpeed);
+    if (dirQueue.length === 0 && stepAccumulator < stepMs * 0.28) {
+      if (neck.dx === -ndx && neck.dy === -ndy) return;
+      if (dir.dx === ndx && dir.dy === ndy) return;
+      dir = { dx: ndx, dy: ndy };
+      return;
+    }
+
     const ref = dirQueue.length > 0 ? dirQueue[dirQueue.length - 1] : dir;
     if (ref.dx === ndx && ref.dy === ndy) return;
     if (ref.dx === -ndx && ref.dy === -ndy) return;
@@ -677,40 +683,17 @@
   }
 
   function stepGame() {
-    const candidateDir = dirQueue.length > 0 ? dirQueue[0] : dir;
-    const nextPos = computeNextHead(candidateDir);
+    const { nextPos, blocked } = predictMove(dir);
 
-    const hitsWall = !nextPos || wallSet.has(keyOf(nextPos.x, nextPos.y));
-    let hitsSelf = false;
-    if (nextPos) {
-      for (let i = 0; i < snake.length - 1; i++) {
-        if (snake[i].x === nextPos.x && snake[i].y === nextPos.y) {
-          hitsSelf = true;
-          break;
-        }
-      }
-    }
-
-    if (hitsWall || hitsSelf) {
+    if (blocked) {
       if (!graceActive) {
         graceActive = true;
-        prevSnake = cloneSnake(snake);
-        grewThisStep = false;
-        eatenFoodGhost = null;
-        eatenBonusGhost = null;
         return;
       }
-      prevSnake = cloneSnake(snake);
-      grewThisStep = false;
-      eatenFoodGhost = null;
-      eatenBonusGhost = null;
       triggerGameOver(false);
       return;
     }
 
-    if (dirQueue.length > 0) {
-      dir = dirQueue.shift();
-    }
     graceActive = false;
 
     const ateFood = food && nextPos.x === food.x && nextPos.y === food.y;
@@ -720,11 +703,6 @@
     );
 
     const shouldGrow = ateFood && (foodsEaten + 1) % APPLES_PER_GROWTH === 0;
-
-    prevSnake = cloneSnake(snake);
-    grewThisStep = shouldGrow;
-    eatenFoodGhost = ateFood ? { x: food.x, y: food.y } : null;
-    eatenBonusGhost = ateBonus ? { x: bonus.x, y: bonus.y, critterIdx: bonus.critterIdx } : null;
 
     snake.unshift({ x: nextPos.x, y: nextPos.y, bulge: ateFood || ateBonus });
 
@@ -776,6 +754,15 @@
       topScore = score;
       isNewRecord = true;
       topScoreBadge.textContent = String(topScore).padStart(4, '0');
+    }
+
+    // Apply next queued turn immediately for the incoming glide tick
+    if (dirQueue.length > 0) {
+      const nextTurn = dirQueue.shift();
+      const neck = getNeckDir();
+      if (!(neck.dx === -nextTurn.dx && neck.dy === -nextTurn.dy)) {
+        dir = nextTurn;
+      }
     }
   }
 
@@ -961,108 +948,88 @@
   function buildSmoothSnakePath(target, t, ox, oy) {
     if (snake.length === 0) return;
 
-    // Ghost apple/critter stays visible briefly until the gliding mouth swallows it
-    if (eatenFoodGhost && t < 0.62) {
-      addSpritePath(target, FOOD_SPRITE, eatenFoodGhost.x, eatenFoodGhost.y, ox, oy);
-    }
-    if (eatenBonusGhost && t < 0.62) {
-      addSpritePath(target, CRITTERS[eatenBonusGhost.critterIdx], eatenBonusGhost.x, eatenBonusGhost.y, ox, oy);
-    }
-
-    const hasPrev = prevSnake.length > 0;
-    const prevHead = hasPrev ? prevSnake[0] : snake[0];
     const head = snake[0];
-    const hdx = wrappedDelta(prevHead.x, head.x, GRID_W);
-    const hdy = wrappedDelta(prevHead.y, head.y, GRID_H);
-    const headMoved = hdx !== 0 || hdy !== 0;
+    const pred = predictMove(dir);
+    const alpha = pred.blocked ? 0 : t;
+    const nextPos = pred.nextPos;
 
-    // 1. Head & neck glide (prevHead -> head) with seamless wrap-around copies
-    const mouthOpen =
-      (eatenFoodGhost && t < 0.72) ||
-      (eatenBonusGhost && t < 0.72) ||
-      (t > 0.35 && isMouthOpen());
-    const headSpr = getHeadSprite(dir.dx, dir.dy, mouthOpen);
+    const ateFoodNext = !pred.blocked && food && nextPos.x === food.x && nextPos.y === food.y;
+    const ateBonusNext =
+      !pred.blocked &&
+      bonus &&
+      ((nextPos.x === bonus.x && nextPos.y === bonus.y) ||
+        (nextPos.x === bonus.x + 1 && nextPos.y === bonus.y));
+    const willGrow = ateFoodNext && (foodsEaten + 1) % APPLES_PER_GROWTH === 0;
 
-    if (headMoved) {
-      const hx1 = prevHead.x + hdx * t;
-      const hy1 = prevHead.y + hdy * t;
-      addSegmentBarPath(target, prevHead.x, prevHead.y, hx1, hy1, true, false, ox, oy);
+    // 1. Head gliding smoothly forward from snake[0] -> nextPos
+    const headSpr = getHeadSprite(dir.dx, dir.dy, Boolean(ateFoodNext || ateBonusNext));
+    if (alpha > 0) {
+      const hx1 = head.x + dir.dx * alpha;
+      const hy1 = head.y + dir.dy * alpha;
+      addSegmentBarPath(target, head.x, head.y, hx1, hy1, true, false, ox, oy);
       addSpritePath(target, headSpr, hx1, hy1, ox, oy);
 
-      // If wrapping across a board edge, also draw emerging copy from opposite edge
-      if (prevHead.x + hdx !== head.x || prevHead.y + hdy !== head.y) {
-        const startX = head.x - hdx;
-        const startY = head.y - hdy;
-        const hx2 = startX + hdx * t;
-        const hy2 = startY + hdy * t;
+      // Seamless wrap-around copy when crossing a board edge
+      if (head.x + dir.dx !== nextPos.x || head.y + dir.dy !== nextPos.y) {
+        const startX = nextPos.x - dir.dx;
+        const startY = nextPos.y - dir.dy;
+        const hx2 = startX + dir.dx * alpha;
+        const hy2 = startY + dir.dy * alpha;
         addSegmentBarPath(target, startX, startY, hx2, hy2, true, false, ox, oy);
         addSpritePath(target, headSpr, hx2, hy2, ox, oy);
       }
     } else {
       addSpritePath(target, headSpr, head.x, head.y, ox, oy);
-      if (snake.length > 1) {
-        const neck = snake[1];
-        const ndx = wrappedDelta(neck.x, head.x, GRID_W);
-        const ndy = wrappedDelta(neck.y, head.y, GRID_H);
-        addSegmentBarPath(target, neck.x, neck.y, neck.x + ndx, neck.y + ndy, true, false, ox, oy);
-        if (neck.x + ndx !== head.x || neck.y + ndy !== head.y) {
-          addSegmentBarPath(target, head.x - ndx, head.y - ndy, head.x, head.y, true, false, ox, oy);
-        }
-      }
     }
 
-    // 2. Interior body bars (locked crisply to grid corners — never cuts corners)
-    const slidingTail = headMoved && !grewThisStep && prevSnake.length > 0;
-    const lastFullIdx = slidingTail ? snake.length - 1 : snake.length - 2;
-
-    for (let i = 1; i < lastFullIdx; i++) {
+    // 2. Interior body bars (100% locked to crisp 90-degree grid corners)
+    const lastFullIdx = snake.length - 2;
+    for (let i = 0; i < lastFullIdx; i++) {
       const a = snake[i];
       const b = snake[i + 1];
       const dx = wrappedDelta(a.x, b.x, GRID_W);
       const dy = wrappedDelta(a.y, b.y, GRID_H);
-      addSegmentBarPath(target, a.x, a.y, a.x + dx, a.y + dy, true, true, ox, oy);
+      const padA = i > 0 || alpha > 0;
+      addSegmentBarPath(target, a.x, a.y, a.x + dx, a.y + dy, padA, true, ox, oy);
       if (a.x + dx !== b.x || a.y + dy !== b.y) {
-        addSegmentBarPath(target, b.x - dx, b.y - dy, b.x, b.y, true, true, ox, oy);
+        addSegmentBarPath(target, b.x - dx, b.y - dy, b.x, b.y, padA, true, ox, oy);
       }
     }
 
-    // 3. Tail glide (or anchored tail when growing / stationary)
+    // 3. Tail gliding smoothly forward from snake[last] -> snake[last - 1] (or anchored on growth)
     if (snake.length > 1) {
-      const tailAnchor = snake[snake.length - 1];
-      if (slidingTail) {
-        const prevTail = prevSnake[prevSnake.length - 1];
-        const tdx = wrappedDelta(prevTail.x, tailAnchor.x, GRID_W);
-        const tdy = wrappedDelta(prevTail.y, tailAnchor.y, GRID_H);
-        const tailSpr = getTailSprite(tdx, tdy);
-        const tx1 = prevTail.x + tdx * t;
-        const ty1 = prevTail.y + tdy * t;
-        addSegmentBarPath(target, tx1, ty1, prevTail.x + tdx, prevTail.y + tdy, false, true, ox, oy);
+      const tailStart = snake[snake.length - 1];
+      const tailAnchor = snake[snake.length - 2];
+      const tdx = wrappedDelta(tailStart.x, tailAnchor.x, GRID_W);
+      const tdy = wrappedDelta(tailStart.y, tailAnchor.y, GRID_H);
+      const tailSpr = getTailSprite(tdx, tdy);
+
+      if (alpha > 0 && !willGrow) {
+        const tx1 = tailStart.x + tdx * alpha;
+        const ty1 = tailStart.y + tdy * alpha;
+        addSegmentBarPath(target, tx1, ty1, tailStart.x + tdx, tailStart.y + tdy, false, true, ox, oy);
         addSpritePath(target, tailSpr, tx1, ty1, ox, oy);
 
-        if (prevTail.x + tdx !== tailAnchor.x || prevTail.y + tdy !== tailAnchor.y) {
+        if (tailStart.x + tdx !== tailAnchor.x || tailStart.y + tdy !== tailAnchor.y) {
           const wrapStartX = tailAnchor.x - tdx;
           const wrapStartY = tailAnchor.y - tdy;
-          const tx2 = wrapStartX + tdx * t;
-          const ty2 = wrapStartY + tdy * t;
+          const tx2 = wrapStartX + tdx * alpha;
+          const ty2 = wrapStartY + tdy * alpha;
           addSegmentBarPath(target, tx2, ty2, tailAnchor.x, tailAnchor.y, false, true, ox, oy);
           addSpritePath(target, tailSpr, tx2, ty2, ox, oy);
         }
       } else {
-        const beforeTail = snake[snake.length - 2];
-        const tdx = wrappedDelta(tailAnchor.x, beforeTail.x, GRID_W);
-        const tdy = wrappedDelta(tailAnchor.y, beforeTail.y, GRID_H);
-        const tailSpr = getTailSprite(tdx, tdy);
-        addSegmentBarPath(target, beforeTail.x, beforeTail.y, beforeTail.x - tdx, beforeTail.y - tdy, true, false, ox, oy);
-        if (beforeTail.x - tdx !== tailAnchor.x || beforeTail.y - tdy !== tailAnchor.y) {
-          addSegmentBarPath(target, tailAnchor.x + tdx, tailAnchor.y + tdy, tailAnchor.x, tailAnchor.y, true, false, ox, oy);
+        addSegmentBarPath(target, tailAnchor.x, tailAnchor.y, tailAnchor.x - tdx, tailAnchor.y - tdy, true, false, ox, oy);
+        if (tailAnchor.x - tdx !== tailStart.x || tailAnchor.y - tdy !== tailStart.y) {
+          addSegmentBarPath(target, tailStart.x + tdx, tailStart.y + tdy, tailStart.x, tailStart.y, true, false, ox, oy);
         }
-        addSpritePath(target, tailSpr, tailAnchor.x, tailAnchor.y, ox, oy);
+        addSpritePath(target, tailSpr, tailStart.x, tailStart.y, ox, oy);
       }
     }
 
-    // 4. Bulging belly segments (digested food traveling down the body)
-    for (let i = 1; i < snake.length - 1; i++) {
-      if (snake[i].bulge) {
+    // 4. Bulging belly segments (digested apples traveling down the body)
+    for (let i = 0; i < snake.length - 1; i++) {
+      if (snake[i].bulge && (i > 0 || alpha > 0.35)) {
         addSpritePath(target, BULGE_SPRITE, snake[i].x, snake[i].y, ox, oy);
       }
     }
@@ -1094,7 +1061,6 @@
       buildSmoothSnakePath(ctx, t, 0, 0);
       ctx.fill();
 
-      ctx.drawImage(backlightOn ? lcdGridMaskLit : lcdGridMaskDim, 0, 0);
       ctx.restore();
     }
   }
@@ -1203,12 +1169,12 @@
   function render() {
     if (screen === 'PLAYING') {
       const stepMs = stepMsForSpeed(currentSpeed);
-      const t = graceActive ? 1 : Math.max(0, Math.min(1, stepAccumulator / stepMs));
+      const t = graceActive ? 0 : Math.max(0, Math.min(1, stepAccumulator / stepMs));
       renderSmoothPlayfield(true, t);
       return;
     }
     if (screen === 'DYING') {
-      renderSmoothPlayfield(dyingFlashCount % 2 === 1, 1);
+      renderSmoothPlayfield(dyingFlashCount % 2 === 1, 0);
       return;
     }
     clearFB();
