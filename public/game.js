@@ -807,17 +807,6 @@
     return d;
   }
 
-  function isMouthOpen() {
-    const nextPos = computeNextHead(dir);
-    if (!nextPos) return false;
-    if (food && nextPos.x === food.x && nextPos.y === food.y) return true;
-    if (bonus && (
-      (nextPos.x === bonus.x && nextPos.y === bonus.y) ||
-      (nextPos.x === bonus.x + 1 && nextPos.y === bonus.y)
-    )) return true;
-    return false;
-  }
-
   function renderPlayfieldStatic() {
     // Top-left: 4-digit score
     const scoreStr = String(score).padStart(4, '0');
