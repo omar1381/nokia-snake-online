@@ -20,20 +20,20 @@
   }
 
   // ---------------- Google Analytics 4 ----------------
-  window.dataLayer = window.dataLayer || [];
-  function gtag() { window.dataLayer.push(arguments); }
-
-  if (GA_ID) {
-    window.gtag = gtag;
-    gtag('js', new Date());
-    gtag('config', GA_ID, { anonymize_ip: true });
+  // Reuse the standard <head> Google tag (needed for GA4 detection & Search Console
+  // verification) so we never double-load gtag.js or double-count page_view.
+  if (GA_ID && typeof window.gtag !== 'function') {
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = function gtag() { window.dataLayer.push(arguments); };
+    window.gtag('js', new Date());
+    window.gtag('config', GA_ID, { anonymize_ip: true });
     loadScript('https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(GA_ID));
   }
 
   window.trackEvent = function trackEvent(name, params) {
-    if (!GA_ID) return;
+    if (!GA_ID || typeof window.gtag !== 'function') return;
     try {
-      gtag('event', name, params || {});
+      window.gtag('event', name, params || {});
     } catch (_) {
       /* never break the game because of analytics */
     }
