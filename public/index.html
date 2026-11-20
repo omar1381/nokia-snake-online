@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Snake II — Nokia 3310 Online</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Top Navigation Bar -->
+    <header class="topbar">
+      <a href="/" class="brand" id="brandLink">
+        <span class="brand-icon" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
+            <rect x="2" y="3" width="9" height="2" fill="#142608"/>
+            <rect x="2" y="5" width="2" height="4" fill="#142608"/>
+            <rect x="2" y="7" width="10" height="2" fill="#142608"/>
+            <rect x="10" y="9" width="2" height="4" fill="#142608"/>
+            <rect x="4" y="11" width="8" height="2" fill="#142608"/>
+            <rect x="13" y="3" width="2" height="2" fill="#142608"/>
+          </svg>
+        </span>
+        <span class="brand-text">
+          <span class="brand-title">Snake II</span>
+          <span class="brand-sub">Nokia 3310 &middot; Online</span>
+        </span>
+      </a>
+
+      <nav class="nav-pill" aria-label="Primary navigation">
+        <button type="button" class="nav-tab active" data-view="play" id="tabPlay">Play</button>
+        <button type="button" class="nav-tab" data-view="board" id="tabBoard">Top Players</button>
+      </nav>
+    </header>
+
+    <!-- PLAY VIEW -->
+    <main id="playView" class="play-layout">
+      <!-- Left: Authentic Nokia 3310 Handset -->
+      <section class="phone-stage" aria-label="Nokia 3310 Phone">
+        <div id="phoneShell" class="phone-shell" data-cover="navy">
+          <div class="nokia-body">
+            <div class="earpiece" aria-hidden="true">
+              <span></span><span></span><span></span><span></span><span></span>
+            </div>
+
+            <div class="faceplate">
+              <div class="nokia-logo">NOKIA</div>
+
+              <div class="lcd-housing">
+                <div id="lcdGlass" class="lcd-glass backlight-on">
+                  <canvas id="lcd" width="504" height="288" aria-label="Nokia 3310 Snake II monochrome LCD display"></canvas>
+                </div>
+              </div>
+
+              <div class="nav-cluster">
+                <button id="btnNavi" type="button" class="navi-btn" title="Select / Pause / Start (Enter or Space)" aria-label="Navi Select button"></button>
+                <div class="soft-row">
+                  <button id="btnC" type="button" class="c-btn" title="Back / Pause (Esc or C)" aria-label="C Back button">C</button>
+                  <div class="rocker-pill" role="group" aria-label="Scroll Up and Down">
+                    <button id="btnDown" type="button" class="rocker-half" title="Scroll Down" aria-label="Scroll Down">&#9662;</button>
+                    <button id="btnUp" type="button" class="rocker-half" title="Scroll Up" aria-label="Scroll Up">&#9652;</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="keypad" role="group" aria-label="Nokia Keypad">
+              <button type="button" class="num-key col-left" data-key="1" title="1">
+                <span class="digit">1</span>
+                <span class="letters">o_o</span>
+              </button>
+              <button type="button" class="num-key col-mid dir-key" data-key="2" title="Up (2)">
+                <span class="digit">2 <span class="dir-arrow">&#9650;</span></span>
+                <span class="letters">ABC</span>
+              </button>
+              <button type="button" class="num-key col-right" data-key="3" title="3">
+                <span class="digit">3</span>
+                <span class="letters">DEF</span>
+              </button>
+
+              <button type="button" class="num-key col-left dir-key" data-key="4" title="Left (4)">
+                <span class="digit"><span class="dir-arrow">&#9664;</span> 4</span>
+                <span class="letters">GHI</span>
+              </button>
+              <button type="button" class="num-key col-mid" data-key="5" title="Select / Pause (5)">
+                <span class="digit">5</span>
+                <span class="letters">JKL</span>
+              </button>
+              <button type="button" class="num-key col-right dir-key" data-key="6" title="Right (6)">
+                <span class="digit">6 <span class="dir-arrow">&#9654;</span></span>
+                <span class="letters">MNO</span>
+              </button>
+
+              <button type="button" class="num-key col-left" data-key="7" title="7">
+                <span class="digit">7</span>
+                <span class="letters">PQRS</span>
+              </button>
+              <button type="button" class="num-key col-mid dir-key" data-key="8" title="Down (8)">
+                <span class="digit">8 <span class="dir-arrow">&#9660;</span></span>
+                <span class="letters">TUV</span>
+              </button>
+              <button type="button" class="num-key col-right" data-key="9" title="9">
+                <span class="digit">9</span>
+                <span class="letters">WXYZ</span>
+              </button>
+
+              <button type="button" class="num-key col-left" data-key="*" title="Toggle LCD Backlight (*)">
+                <span class="digit">*</span>
+                <span class="letters">LIGHT</span>
+              </button>
+              <button type="button" class="num-key col-mid" data-key="0" title="0">
+                <span class="digit">0</span>
+                <span class="letters">_</span>
+              </button>
+              <button type="button" class="num-key col-right" data-key="#" title="Toggle Sound (#)">
+                <span class="digit">#</span>
+                <span class="letters">TONE</span>
+              </button>
+            </div>
+
+            <div class="mic-slit" aria-hidden="true"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right: Companion Cards -->
+      <aside class="side-stack">
+        <!-- Player Profile Card -->
+        <section class="card">
+          <div class="card-head">
+            <h2 class="card-title">Your player</h2>
+            <span class="card-meta">Scores post automatically</span>
+          </div>
+
+          <label class="field-label" for="nicknameInput">Nickname (shown on the leaderboard)</label>
+          <form id="nicknameForm" class="nick-row">
+            <input
+              id="nicknameInput"
+              type="text"
+              maxlength="20"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="e.g. SnakeMaster"
+            />
+            <button id="saveNameBtn" type="submit" class="btn-secondary">Save</button>
+          </form>
+
+          <div id="onlineStatus" class="status-box">Pick a nickname, then press New Game.</div>
+
+          <div class="player-stats-row">
+            <span>Your best: <strong id="playerBestStat">&ndash;</strong></span>
+            <span>Global rank: <strong id="playerRankStat">&ndash;</strong></span>
+          </div>
+        </section>
+
+        <!-- Game Controls Card (Progressive Speed, NO speed slider) -->
+        <section class="card">
+          <div class="card-head">
+            <h2 class="card-title">Game</h2>
+            <span class="card-meta">Device best <strong id="topScoreBadge" class="mono">0000</strong></span>
+          </div>
+
+          <div class="action-row">
+            <button id="quickPlayBtn" type="button" class="btn-primary flex-1">New Game</button>
+            <button id="backlightBtn" type="button" class="btn-secondary" title="Toggle green LED backlight (B or *)">Backlight: On</button>
+            <button id="soundBtn" type="button" class="btn-secondary" title="Toggle piezo buzzer sound (M or #)">Sound: On</button>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Progressive Speed Info (Fair, No Slider) -->
+          <div class="speed-info">
+            <div class="speed-info-head">
+              <span class="speed-label">
+                <span class="signal-bars" aria-hidden="true">
+                  <i></i><i></i><i></i><i></i>
+                </span>
+                Progressive speed
+              </span>
+              <span id="liveSpeedBadge" class="speed-pill mono">Speed 1</span>
+            </div>
+            <p class="speed-caption">
+              Everyone starts at <strong>Speed 1</strong>. Speed goes up every <strong>4 apples</strong>, and each apple is worth your current speed.
+            </p>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Maze Selector -->
+          <div class="maze-section">
+            <div class="card-head compact">
+              <span class="field-label no-margin">Maze</span>
+              <span id="mazeHint" class="card-meta">Wrap-around edges</span>
+            </div>
+            <div id="mazeButtons" class="maze-grid"></div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Xpress-on Cover -->
+          <div class="cover-row">
+            <span class="field-label no-margin">Xpress-on cover</span>
+            <div class="cover-dots" role="group" aria-label="Phone Cover Color">
+              <button type="button" class="cover-dot active" data-set-cover="navy" style="background: linear-gradient(135deg, #2d405e, #151f30);" title="Midnight Blue"></button>
+              <button type="button" class="cover-dot" data-set-cover="silver" style="background: linear-gradient(135deg, #c6cdd7, #7a8392);" title="Arctic Silver"></button>
+              <button type="button" class="cover-dot" data-set-cover="yellow" style="background: linear-gradient(135deg, #e5b833, #9c720f);" title="Sahara Yellow"></button>
+              <button type="button" class="cover-dot" data-set-cover="red" style="background: linear-gradient(135deg, #a62b36, #571219);" title="Volcano Red"></button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Top 5 Mini Leaderboard -->
+        <section class="card">
+          <div class="card-head">
+            <h2 class="card-title">Top 5 players</h2>
+            <button type="button" id="openFullBoardBtn" class="link-btn">Full leaderboard &rarr;</button>
+          </div>
+          <ol id="miniLeaderboard" class="mini-board">
+            <li class="mini-empty">No scores yet. Be the first!</li>
+          </ol>
+        </section>
+
+        <!-- Controls Reference -->
+        <section class="card">
+          <div class="card-head">
+            <h2 class="card-title">Controls</h2>
+          </div>
+          <div class="controls-list">
+            <div class="ctrl-row">
+              <span>Steer</span>
+              <span class="ctrl-keys">
+                <span class="kbd-chip">&uarr;&darr;&larr;&rarr;</span>
+                <span class="kbd-chip">WASD</span>
+                <span class="kbd-chip">2 4 6 8</span>
+              </span>
+            </div>
+            <div class="ctrl-row">
+              <span>Select / Pause</span>
+              <span class="ctrl-keys">
+                <span class="kbd-chip">Enter</span>
+                <span class="kbd-chip">Space</span>
+                <span class="kbd-chip">5</span>
+              </span>
+            </div>
+            <div class="ctrl-row">
+              <span>Back / Menu</span>
+              <span class="ctrl-keys">
+                <span class="kbd-chip">Esc</span>
+                <span class="kbd-chip">C</span>
+              </span>
+            </div>
+            <div class="ctrl-row">
+              <span>Backlight / Sound</span>
+              <span class="ctrl-keys">
+                <span class="kbd-chip">B</span>
+                <span class="kbd-chip">*</span>
+                <span class="kbd-chip">M</span>
+                <span class="kbd-chip">#</span>
+              </span>
+            </div>
+          </div>
+          <p class="controls-note">
+            Every 5 apples spawns a timed bonus critter for extra points. Tap the Nokia keypad or swipe directly on the LCD on touch devices.
+          </p>
+        </section>
+      </aside>
+    </main>
+
+    <!-- TOP PLAYERS DASHBOARD VIEW -->
+    <main id="boardView" class="board-layout hidden">
+      <section class="board-hero">
+        <div>
+          <h1 class="board-title">Top Players</h1>
+          <p class="board-sub">
+            Best score per player, updated live. Everyone faces the same speed ramp, so the top spots go to whoever survives the fastest snake.
+          </p>
+        </div>
+        <div class="board-hero-actions">
+          <span id="updatedAgo" class="updated-ago">Updated just now</span>
+          <button type="button" id="playNowBtn" class="btn-primary">Play now</button>
+        </div>
+      </section>
+
+      <!-- 5 KPI Stat Cards -->
+      <section class="kpi-grid" aria-label="Global statistics">
+        <div class="kpi-card kpi-highlight">
+          <div class="kpi-label">World record</div>
+          <div id="kpiRecord" class="kpi-value accent mono">&ndash;</div>
+          <div id="kpiRecordBy" class="kpi-sub">No runs yet</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Players</div>
+          <div id="kpiPlayers" class="kpi-value mono">0</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Games played</div>
+          <div id="kpiGames" class="kpi-value mono">0</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Games today</div>
+          <div id="kpiToday" class="kpi-value mono">0</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Hours played</div>
+          <div id="kpiHours" class="kpi-value mono">0</div>
+        </div>
+      </section>
+
+      <!-- Top 3 Podium -->
+      <section id="podiumGrid" class="podium-grid" aria-label="Top 3 podium"></section>
+
+      <!-- Rankings Table + Recent Games Sidebar -->
+      <section class="board-main-grid">
+        <div class="card rankings-card">
+          <div class="card-head">
+            <h2 class="card-title">Rankings</h2>
+            <span id="rankingsCount" class="card-meta">0 players</span>
+          </div>
+
+          <div class="filter-bar">
+            <div class="period-pills" role="group" aria-label="Timeframe filter">
+              <button type="button" class="period-btn active" data-period="all">All time</button>
+              <button type="button" class="period-btn" data-period="week">This week</button>
+              <button type="button" class="period-btn" data-period="today">Today</button>
+            </div>
+
+            <select id="mazeFilter" class="filter-select" aria-label="Filter by maze">
+              <option value="all">All mazes</option>
+              <option value="0">No maze</option>
+              <option value="1">Box</option>
+              <option value="2">Tunnel</option>
+              <option value="3">Mill</option>
+              <option value="4">Rails</option>
+              <option value="5">Apartment</option>
+            </select>
+
+            <input
+              id="searchInput"
+              type="search"
+              class="filter-search"
+              placeholder="Find a player..."
+              autocomplete="off"
+              aria-label="Search player"
+            />
+          </div>
+
+          <div class="table-wrap">
+            <table class="rankings-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Player</th>
+                  <th class="num">Score</th>
+                  <th>Maze</th>
+                  <th class="num">Speed</th>
+                  <th class="num">Length</th>
+                  <th class="num">Time</th>
+                  <th class="num">Games</th>
+                  <th class="num">When</th>
+                </tr>
+              </thead>
+              <tbody id="rankingsBody">
+                <tr>
+                  <td colspan="9" class="table-empty">No scores recorded yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <aside class="board-side-stack">
+          <div class="card">
+            <div class="card-head">
+              <h2 class="card-title">Recent games</h2>
+              <span class="live-badge"><span class="live-dot"></span>Live</span>
+            </div>
+            <ul id="recentGamesList" class="recent-list">
+              <li class="mini-empty">Waiting for games...</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <h2 class="card-title">How ranking works</h2>
+            </div>
+            <p class="rules-text">
+              <strong>Speed ramps up</strong> every 4 apples from Speed 1, and each apple is worth your current speed. Bonus critters appear every 5 apples for timed extra points.
+            </p>
+            <p class="rules-text">
+              Your highest score is shown on the leaderboard. Nicknames are locked to your browser key so nobody else can overwrite your spot.
+            </p>
+          </div>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <script src="/game.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

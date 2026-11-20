@@ -1,0 +1,15 @@
+{
+  "name": "nokia-snake-online",
+  "version": "1.0.0",
+  "description": "Authentic Nokia 3310 Snake II Online with progressive speed and a live Top Players leaderboard.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test test/api.test.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}
