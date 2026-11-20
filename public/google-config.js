@@ -6,7 +6,7 @@
 // adSlots         : Optional ad unit IDs (AdSense → Ads → By ad unit → Display ads → copy data-ad-slot).
 //                   If adsenseClient is set but slots are empty, only AdSense Auto ads are used.
 window.GOOGLE_CONFIG = {
-  gaMeasurementId: '',
+  gaMeasurementId: 'G-CZQNFNC282',
   adsenseClient: '',
   adSlots: {
     play: '',   // Banner under the game area (never covers the phone/LCD)
