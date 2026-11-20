@@ -4,6 +4,7 @@
   const MAZE_NAMES = ['No maze', 'Box', 'Tunnel', 'Mill', 'Rails', 'Apartment'];
   const STORAGE_NAME_KEY = 'nokia_snake_online_nickname_v1';
   const STORAGE_SECRET_KEY = 'nokia_snake_online_player_key_v1';
+  const STORAGE_LOCAL_SCORES_KEY = 'nokia_snake_local_scores_v1';
 
   // DOM references
   const playView = document.getElementById('playView');
@@ -36,8 +37,16 @@
   const searchInput = document.getElementById('searchInput');
   const periodButtons = document.querySelectorAll('.period-btn');
 
+  // Static hosting (e.g. GitHub Pages) automatically uses local browser storage
+  let useLocalMode =
+    window.location.protocol === 'file:' ||
+    window.location.hostname.endsWith('.github.io');
+
   // State
-  let currentView = window.location.pathname === '/leaderboard' ? 'board' : 'play';
+  let currentView =
+    window.location.pathname === '/leaderboard' || window.location.hash === '#leaderboard'
+      ? 'board'
+      : 'play';
   let playerName = localStorage.getItem(STORAGE_NAME_KEY) || '';
   let playerKey = getOrCreatePlayerKey();
   let activeRunId = null;
@@ -107,7 +116,143 @@
     playerRankStat.textContent = summary.globalRank != null ? `#${summary.globalRank}` : '–';
   }
 
+  // Local fallback store for static deployments (e.g. GitHub Pages)
+  const localStore = (() => {
+    function loadScores() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(STORAGE_LOCAL_SCORES_KEY) || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveScores(scores) {
+      localStorage.setItem(STORAGE_LOCAL_SCORES_KEY, JSON.stringify(scores));
+    }
+
+    function computeRankings(scores) {
+      const byPlayer = new Map();
+      for (const s of scores) {
+        const k = s.name.toLowerCase();
+        const existing = byPlayer.get(k);
+        if (!existing) {
+          byPlayer.set(k, { ...s, games: 1 });
+        } else {
+          existing.games += 1;
+          const isBetter =
+            s.score > existing.score ||
+            (s.score === existing.score && s.topSpeed > existing.topSpeed) ||
+            (s.score === existing.score && s.topSpeed === existing.topSpeed && s.createdAt < existing.createdAt);
+          if (isBetter) {
+            Object.assign(existing, s);
+          }
+        }
+      }
+      return Array.from(byPlayer.values())
+        .sort((a, b) => (b.score !== a.score ? b.score - a.score : b.topSpeed !== a.topSpeed ? b.topSpeed - a.topSpeed : a.createdAt - b.createdAt))
+        .map((row, idx) => ({ rank: idx + 1, ...row }));
+    }
+
+    function getPlayerSummary(name) {
+      const all = computeRankings(loadScores());
+      const found = all.find((r) => r.name.toLowerCase() === name.toLowerCase());
+      if (!found) return { name, bestScore: null, globalRank: null, gamesPlayed: 0 };
+      return { name: found.name, bestScore: found.score, globalRank: found.rank, gamesPlayed: found.games };
+    }
+
+    function registerPlayer(rawName) {
+      const name = String(rawName || '').trim().replace(/\s+/g, ' ');
+      if (name.length < 2 || name.length > 20) {
+        throw new Error('Nickname must be between 2 and 20 characters.');
+      }
+      if (!/^[A-Za-z0-9 _.-]+$/.test(name)) {
+        throw new Error('Use letters, numbers, spaces, dots, hyphens, or underscores.');
+      }
+      return getPlayerSummary(name);
+    }
+
+    function submitScore(payload) {
+      const scores = loadScores();
+      const lower = payload.name.toLowerCase();
+      const prevBestAll = scores.reduce((m, s) => Math.max(m, s.score), 0);
+      const prevPlayerBest = scores
+        .filter((s) => s.name.toLowerCase() === lower)
+        .reduce((m, s) => Math.max(m, s.score), 0);
+
+      const entry = {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+        name: payload.name,
+        score: payload.score,
+        startSpeed: 1,
+        topSpeed: payload.topSpeed,
+        maze: payload.maze,
+        foods: payload.foods,
+        length: payload.length,
+        durationMs: Math.round(payload.durationMs || 0),
+        createdAt: Date.now(),
+      };
+      scores.push(entry);
+      saveScores(scores);
+
+      const summary = getPlayerSummary(entry.name);
+      return {
+        entry,
+        bestScore: summary.bestScore,
+        globalRank: summary.globalRank,
+        gamesPlayed: summary.gamesPlayed,
+        isPersonalBest: entry.score > prevPlayerBest,
+        isWorldRecord: entry.score > prevBestAll,
+      };
+    }
+
+    function getLeaderboard({ period = 'all', maze = 'all', search = '', limit = 100 } = {}) {
+      const scores = loadScores();
+      const now = Date.now();
+      const dayAgo = now - 24 * 60 * 60 * 1000;
+      const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+
+      const allRankings = computeRankings(scores);
+      const top = allRankings[0] || null;
+      const totalDurationMs = scores.reduce((sum, s) => sum + (Number(s.durationMs) || 0), 0);
+
+      let filtered = scores;
+      if (period === 'today') filtered = filtered.filter((s) => s.createdAt >= dayAgo);
+      else if (period === 'week') filtered = filtered.filter((s) => s.createdAt >= weekAgo);
+      if (maze !== 'all' && maze !== '') {
+        const mIdx = Number(maze);
+        if (Number.isInteger(mIdx)) filtered = filtered.filter((s) => s.maze === mIdx);
+      }
+
+      const fullRankings = computeRankings(filtered);
+      const q = String(search || '').trim().toLowerCase();
+      const searched = q ? fullRankings.filter((r) => r.name.toLowerCase().includes(q)) : fullRankings;
+
+      return {
+        stats: {
+          worldRecord: top
+            ? { score: top.score, name: top.name, maze: top.maze, topSpeed: top.topSpeed, durationMs: top.durationMs }
+            : null,
+          totalPlayers: allRankings.length,
+          totalGames: scores.length,
+          gamesToday: scores.filter((s) => s.createdAt >= dayAgo).length,
+          hoursPlayed: Math.round((totalDurationMs / 3600000) * 10) / 10,
+        },
+        rankings: searched.slice(0, Number(limit) || 100),
+        totalMatching: searched.length,
+        totalPlayersInFilter: fullRankings.length,
+        recentGames: [...scores].sort((a, b) => b.createdAt - a.createdAt).slice(0, 15),
+        updatedAt: now,
+      };
+    }
+
+    return { registerPlayer, getPlayerSummary, submitScore, getLeaderboard };
+  })();
+
   async function apiJson(url, options = {}) {
+    if (useLocalMode) {
+      return localApiDispatch(url, options);
+    }
     const res = await fetch(url, {
       headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
       ...options,
@@ -120,6 +265,35 @@
       throw err;
     }
     return data;
+  }
+
+  function localApiDispatch(url, options = {}) {
+    const parsed = new URL(url, window.location.origin);
+    const body = options.body ? JSON.parse(options.body) : {};
+    if (parsed.pathname === '/api/players') {
+      return Promise.resolve(localStore.registerPlayer(body.name));
+    }
+    if (parsed.pathname === '/api/players/me') {
+      const name = parsed.searchParams.get('name') || '';
+      return Promise.resolve(name ? localStore.getPlayerSummary(name) : { name: null, bestScore: null, globalRank: null, gamesPlayed: 0 });
+    }
+    if (parsed.pathname === '/api/runs/start') {
+      return Promise.resolve({ runId: `local-${Date.now()}`, startedAt: Date.now(), startSpeed: 1 });
+    }
+    if (parsed.pathname === '/api/scores') {
+      return Promise.resolve(localStore.submitScore(body));
+    }
+    if (parsed.pathname === '/api/leaderboard') {
+      return Promise.resolve(
+        localStore.getLeaderboard({
+          period: parsed.searchParams.get('period') || 'all',
+          maze: parsed.searchParams.get('maze') || 'all',
+          search: parsed.searchParams.get('search') || '',
+          limit: parsed.searchParams.get('limit') || '100',
+        })
+      );
+    }
+    return Promise.resolve({});
   }
 
   // =========================================================================
@@ -139,9 +313,16 @@
     }
 
     if (pushHistory) {
-      const targetPath = isBoard ? '/leaderboard' : '/';
-      if (window.location.pathname !== targetPath) {
-        window.history.pushState({ view: currentView }, '', targetPath);
+      if (useLocalMode) {
+        const targetHash = isBoard ? '#leaderboard' : '#play';
+        if (window.location.hash !== targetHash) {
+          window.history.pushState({ view: currentView }, '', targetHash);
+        }
+      } else {
+        const targetPath = isBoard ? '/leaderboard' : '/';
+        if (window.location.pathname !== targetPath) {
+          window.history.pushState({ view: currentView }, '', targetPath);
+        }
       }
     }
 
@@ -160,7 +341,8 @@
   });
 
   window.addEventListener('popstate', () => {
-    setView(window.location.pathname === '/leaderboard' ? 'board' : 'play', false);
+    const isBoard = window.location.pathname === '/leaderboard' || window.location.hash === '#leaderboard';
+    setView(isBoard ? 'board' : 'play', false);
   });
 
   // =========================================================================
@@ -480,7 +662,7 @@
 
   // Live SSE updates
   function connectEvents() {
-    if (typeof EventSource === 'undefined') return;
+    if (useLocalMode || typeof EventSource === 'undefined') return;
     const es = new EventSource('/api/events');
     es.addEventListener('score', () => {
       refreshLeaderboard();
