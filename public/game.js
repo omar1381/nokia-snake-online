@@ -206,10 +206,18 @@
 
   let lcdDirty = true;
   let playfieldDirty = true;
+  let rafId = 0;
+
+  function ensureLoop() {
+    if (rafId || document.hidden || !isViewActive) return;
+    lastFrameTime = performance.now();
+    rafId = requestAnimationFrame(loop);
+  }
 
   function markDirty() {
     lcdDirty = true;
     playfieldDirty = true;
+    ensureLoop();
   }
 
   function flushLCD(targetCtx = ctx) {
@@ -331,8 +339,8 @@
   const APPLES_PER_GROWTH = 2; // +1 segment every 2 apples for slower, smoother elongation
 
   function stepMsForSpeed(spd) {
-    // Snappy start (255ms/step) with faster progressive acceleration (~5.5% per tier) down to 76ms
-    return Math.max(76, Math.round(255 * Math.pow(0.945, spd - 1)));
+    // Nimble, light start (228ms/step) with smooth progressive acceleration (~5.5% per tier) down to 74ms
+    return Math.max(74, Math.round(228 * Math.pow(0.945, spd - 1)));
   }
 
   function buildMazes() {
@@ -465,7 +473,8 @@
   let foodsEaten = 0;
   let score = 0;
   let isNewRecord = false;
-  let wallSet = new Set();
+  const wallGrid = new Uint8Array(GRID_W * GRID_H);
+  let cachedPred = null;
 
   let graceActive = false;
   let dyingFlashCount = 0;
@@ -504,14 +513,14 @@
     notifyPlayState(false);
   }
 
-  function keyOf(x, y) {
-    return `${x},${y}`;
+  function isWall(x, y) {
+    return wallGrid[y * GRID_W + x] === 1;
   }
 
   function rebuildWallSet() {
-    wallSet = new Set();
+    wallGrid.fill(0);
     for (const [wx, wy] of MAZES[mazeIdx].walls) {
-      wallSet.add(keyOf(wx, wy));
+      wallGrid[wy * GRID_W + wx] = 1;
     }
   }
 
@@ -541,6 +550,7 @@
     }
     dir = { dx, dy };
     dirQueue = [];
+    cachedPred = null;
     score = 0;
     foodsEaten = 0;
     currentSpeed = START_SPEED;
@@ -563,7 +573,7 @@
   }
 
   function isCellBlocked(x, y, ignoreTail = false) {
-    if (wallSet.has(keyOf(x, y))) return true;
+    if (isWall(x, y)) return true;
     const limit = ignoreTail ? snake.length - 1 : snake.length;
     for (let i = 0; i < limit; i++) {
       if (snake[i].x === x && snake[i].y === y) return true;
@@ -621,7 +631,7 @@
 
   function predictMove(moveDir) {
     const nextPos = computeNextHead(moveDir);
-    const hitsWall = !nextPos || wallSet.has(keyOf(nextPos.x, nextPos.y));
+    const hitsWall = !nextPos || isWall(nextPos.x, nextPos.y);
     let hitsSelf = false;
     if (nextPos) {
       for (let i = 0; i < snake.length - 1; i++) {
@@ -634,9 +644,14 @@
     return { nextPos, blocked: hitsWall || hitsSelf };
   }
 
+  function getCurrentPred() {
+    if (!cachedPred) cachedPred = predictMove(dir);
+    return cachedPred;
+  }
+
   function queueDirection(ndx, ndy) {
     const neck = getNeckDir();
-    const currentPred = predictMove(dir);
+    const currentPred = getCurrentPred();
 
     // Instant escape if paused at a wall/self or during grace period
     if (graceActive || currentPred.blocked) {
@@ -644,18 +659,20 @@
       if (dir.dx === ndx && dir.dy === ndy) return;
       dir = { dx: ndx, dy: ndy };
       dirQueue = [];
+      cachedPred = null;
       graceActive = false;
       stepAccumulator = 0;
       return;
     }
 
-    // Early-turn forgiveness: if the head just entered this cell (< 28% across),
-    // steer immediately on the spot for zero-latency cornering.
+    // Early-turn forgiveness: if the head is still in the first 40% of a cell,
+    // steer immediately on the spot so controls feel light and responsive.
     const stepMs = stepMsForSpeed(currentSpeed);
-    if (dirQueue.length === 0 && stepAccumulator < stepMs * 0.28) {
+    if (dirQueue.length === 0 && stepAccumulator < stepMs * 0.4) {
       if (neck.dx === -ndx && neck.dy === -ndy) return;
       if (dir.dx === ndx && dir.dy === ndy) return;
       dir = { dx: ndx, dy: ndy };
+      cachedPred = null;
       return;
     }
 
@@ -683,7 +700,8 @@
   }
 
   function stepGame() {
-    const { nextPos, blocked } = predictMove(dir);
+    const { nextPos, blocked } = getCurrentPred();
+    cachedPred = null;
 
     if (blocked) {
       if (!graceActive) {
@@ -695,6 +713,7 @@
     }
 
     graceActive = false;
+    const hadBonus = Boolean(bonus);
 
     const ateFood = food && nextPos.x === food.x && nextPos.y === food.y;
     const ateBonus = bonus && (
@@ -728,6 +747,7 @@
           isNewRecord = true;
           topScoreBadge.textContent = String(topScore).padStart(4, '0');
         }
+        playfieldDirty = true;
         triggerGameOver(true);
         return;
       }
@@ -748,6 +768,10 @@
       if (bonus.ticksLeft <= 0) {
         bonus = null;
       }
+    }
+
+    if (ateFood || ateBonus || hadBonus) {
+      playfieldDirty = true;
     }
 
     if (score > topScore) {
@@ -934,13 +958,16 @@
     }
   }
 
+  const USE_PATH2D = typeof Path2D === 'function';
+
   function buildSmoothSnakePath(target, t, ox, oy) {
-    if (snake.length === 0) return;
+    if (snake.length === 0) return false;
 
     const head = snake[0];
-    const pred = predictMove(dir);
+    const pred = getCurrentPred();
     const alpha = pred.blocked ? 0 : t;
     const nextPos = pred.nextPos;
+    let needsClip = false;
 
     const ateFoodNext = !pred.blocked && food && nextPos.x === food.x && nextPos.y === food.y;
     const ateBonusNext =
@@ -960,6 +987,7 @@
 
       // Seamless wrap-around copy when crossing a board edge
       if (head.x + dir.dx !== nextPos.x || head.y + dir.dy !== nextPos.y) {
+        needsClip = true;
         const startX = nextPos.x - dir.dx;
         const startY = nextPos.y - dir.dy;
         const hx2 = startX + dir.dx * alpha;
@@ -981,6 +1009,7 @@
       const padA = i > 0 || alpha > 0;
       addSegmentBarPath(target, a.x, a.y, a.x + dx, a.y + dy, padA, true, ox, oy);
       if (a.x + dx !== b.x || a.y + dy !== b.y) {
+        needsClip = true;
         addSegmentBarPath(target, b.x - dx, b.y - dy, b.x, b.y, padA, true, ox, oy);
       }
     }
@@ -1000,6 +1029,7 @@
         addSpritePath(target, tailSpr, tx1, ty1, ox, oy);
 
         if (tailStart.x + tdx !== tailAnchor.x || tailStart.y + tdy !== tailAnchor.y) {
+          needsClip = true;
           const wrapStartX = tailAnchor.x - tdx;
           const wrapStartY = tailAnchor.y - tdy;
           const tx2 = wrapStartX + tdx * alpha;
@@ -1010,6 +1040,7 @@
       } else {
         addSegmentBarPath(target, tailAnchor.x, tailAnchor.y, tailAnchor.x - tdx, tailAnchor.y - tdy, true, false, ox, oy);
         if (tailAnchor.x - tdx !== tailStart.x || tailAnchor.y - tdy !== tailStart.y) {
+          needsClip = true;
           addSegmentBarPath(target, tailStart.x + tdx, tailStart.y + tdy, tailStart.x, tailStart.y, true, false, ox, oy);
         }
         addSpritePath(target, tailSpr, tailStart.x, tailStart.y, ox, oy);
@@ -1022,6 +1053,8 @@
         addSpritePath(target, BULGE_SPRITE, snake[i].x, snake[i].y, ox, oy);
       }
     }
+
+    return needsClip;
   }
 
   function renderSmoothPlayfield(showSnake, t) {
@@ -1035,22 +1068,42 @@
       const shadowColor = backlightOn ? 'rgba(18, 40, 6, 0.16)' : 'rgba(20, 32, 12, 0.15)';
       const inkColor = backlightOn ? '#142608' : '#1b2613';
 
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(PF_X, PF_Y, PF_W, PF_H);
-      ctx.clip();
+      if (USE_PATH2D) {
+        const path = new Path2D();
+        const needsClip = buildSmoothSnakePath(path, t, 0, 0);
+        if (needsClip) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(PF_X, PF_Y, PF_W, PF_H);
+          ctx.clip();
+        }
+        ctx.translate(1, 1);
+        ctx.fillStyle = shadowColor;
+        ctx.fill(path);
+        ctx.translate(-1, -1);
+        ctx.fillStyle = inkColor;
+        ctx.fill(path);
+        if (needsClip) {
+          ctx.restore();
+        }
+      } else {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(PF_X, PF_Y, PF_W, PF_H);
+        ctx.clip();
 
-      ctx.fillStyle = shadowColor;
-      ctx.beginPath();
-      buildSmoothSnakePath(ctx, t, 1, 1);
-      ctx.fill();
+        ctx.fillStyle = shadowColor;
+        ctx.beginPath();
+        buildSmoothSnakePath(ctx, t, 1, 1);
+        ctx.fill();
 
-      ctx.fillStyle = inkColor;
-      ctx.beginPath();
-      buildSmoothSnakePath(ctx, t, 0, 0);
-      ctx.fill();
+        ctx.fillStyle = inkColor;
+        ctx.beginPath();
+        buildSmoothSnakePath(ctx, t, 0, 0);
+        ctx.fill();
 
-      ctx.restore();
+        ctx.restore();
+      }
     }
   }
 
@@ -1182,7 +1235,15 @@
   // =========================================================================
   let lastSplashPhase = -1;
 
+  function stopLoop() {
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
+  }
+
   function loop(now) {
+    rafId = 0;
     const dt = Math.min(100, Math.max(0, now - lastFrameTime));
     lastFrameTime = now;
 
@@ -1191,7 +1252,7 @@
       const phase = Math.floor(splashTimer / 450) % 2;
       if (phase !== lastSplashPhase) {
         lastSplashPhase = phase;
-        markDirty();
+        lcdDirty = true;
       }
     } else if (screen === 'PLAYING') {
       activePlayMs += dt;
@@ -1200,7 +1261,6 @@
       while (stepAccumulator >= stepMs && screen === 'PLAYING') {
         stepAccumulator -= stepMs;
         stepGame();
-        playfieldDirty = true;
         stepMs = stepMsForSpeed(currentSpeed);
       }
       // Render every animation frame during active gameplay for 60/120 FPS continuous glide
@@ -1214,7 +1274,8 @@
           screen = 'GAME_OVER';
           if (isNewRecord && score > 0) SFX.highScore();
         }
-        markDirty();
+        lcdDirty = true;
+        playfieldDirty = true;
       }
     }
 
@@ -1222,7 +1283,11 @@
       lcdDirty = false;
       render();
     }
-    requestAnimationFrame(loop);
+
+    // Only keep rAF alive during animated screens (0% CPU when idle on menus/leaderboard)
+    if (!document.hidden && isViewActive && (screen === 'PLAYING' || screen === 'DYING' || screen === 'SPLASH')) {
+      rafId = requestAnimationFrame(loop);
+    }
   }
 
   // =========================================================================
@@ -1342,10 +1407,16 @@
     }
   }
 
+  const pulseTimers = new WeakMap();
   function pulseButton(el) {
     if (!el) return;
     el.classList.add('pressed');
-    setTimeout(() => el.classList.remove('pressed'), 110);
+    const prev = pulseTimers.get(el);
+    if (prev) clearTimeout(prev);
+    pulseTimers.set(el, setTimeout(() => {
+      el.classList.remove('pressed');
+      pulseTimers.delete(el);
+    }, 95));
   }
 
   function isTypingTarget(el) {
@@ -1354,50 +1425,65 @@
     return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
   }
 
+  const keyEl2 = document.querySelector('[data-key="2"]');
+  const keyEl8 = document.querySelector('[data-key="8"]');
+  const keyEl4 = document.querySelector('[data-key="4"]');
+  const keyEl6 = document.querySelector('[data-key="6"]');
+  const keyElStar = document.querySelector('[data-key="*"]');
+  const keyElHash = document.querySelector('[data-key="#"]');
+  const btnNaviEl = document.getElementById('btnNavi');
+  const btnCEl = document.getElementById('btnC');
+
+  const GAME_KEYS = new Set([
+    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+    ' ', 'Enter', 'Escape', 'Backspace', 'p', 'P',
+    'w', 'W', 'a', 'A', 's', 'S', 'd', 'D',
+    '2', '4', '5', '6', '8', 'c', 'C', 'b', 'B', 'm', 'M', '*', '#',
+  ]);
+
   window.addEventListener('keydown', (e) => {
     if (!isViewActive || isTypingTarget(e.target)) return;
     const k = e.key;
-    const gameKeys = [
-      'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-      ' ', 'Enter', 'Escape', 'Backspace', 'p', 'P',
-      'w', 'W', 'a', 'A', 's', 'S', 'd', 'D',
-      '2', '4', '5', '6', '8', 'c', 'C', 'b', 'B', 'm', 'M', '*', '#',
-    ];
-    if (!gameKeys.includes(k)) return;
+    if (!GAME_KEYS.has(k)) return;
     e.preventDefault();
     if (document.activeElement && document.activeElement !== document.body) {
       document.activeElement.blur();
     }
     if (k === 'ArrowUp' || k === 'w' || k === 'W' || k === '2') {
-      pulseButton(document.querySelector('[data-key="2"]'));
+      pulseButton(keyEl2);
       handleAction('UP');
     } else if (k === 'ArrowDown' || k === 's' || k === 'S' || k === '8') {
-      pulseButton(document.querySelector('[data-key="8"]'));
+      pulseButton(keyEl8);
       handleAction('DOWN');
     } else if (k === 'ArrowLeft' || k === 'a' || k === 'A' || k === '4') {
-      pulseButton(document.querySelector('[data-key="4"]'));
+      pulseButton(keyEl4);
       handleAction('LEFT');
     } else if (k === 'ArrowRight' || k === 'd' || k === 'D' || k === '6') {
-      pulseButton(document.querySelector('[data-key="6"]'));
+      pulseButton(keyEl6);
       handleAction('RIGHT');
     } else if (k === 'Enter' || k === ' ' || k === '5' || k === 'p' || k === 'P') {
-      pulseButton(document.getElementById('btnNavi'));
+      pulseButton(btnNaviEl);
       handleAction('SELECT');
     } else if (k === 'Escape' || k === 'Backspace' || k === 'c' || k === 'C') {
-      pulseButton(document.getElementById('btnC'));
+      pulseButton(btnCEl);
       handleAction('BACK');
     } else if (k === 'b' || k === 'B' || k === '*') {
-      pulseButton(document.querySelector('[data-key="*"]'));
+      pulseButton(keyElStar);
       handleAction('LIGHT');
     } else if (k === 'm' || k === 'M' || k === '#') {
-      pulseButton(document.querySelector('[data-key="#"]'));
+      pulseButton(keyElHash);
       handleAction('SOUND');
     }
   });
 
   // Auto-pause if the player switches tabs, locks their phone, or backgrounds the browser
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) pauseToMenu();
+    if (document.hidden) {
+      pauseToMenu();
+      stopLoop();
+    } else if (isViewActive) {
+      ensureLoop();
+    }
   });
   window.addEventListener('blur', () => {
     pauseToMenu();
@@ -1415,8 +1501,8 @@
     });
   }
 
-  bindHardwareButton(document.getElementById('btnNavi'), () => handleAction('SELECT'));
-  bindHardwareButton(document.getElementById('btnC'), () => handleAction('BACK'));
+  bindHardwareButton(btnNaviEl, () => handleAction('SELECT'));
+  bindHardwareButton(btnCEl, () => handleAction('BACK'));
   bindHardwareButton(document.getElementById('btnUp'), () => handleAction('UP'));
   bindHardwareButton(document.getElementById('btnDown'), () => handleAction('DOWN'));
 
@@ -1434,21 +1520,22 @@
     });
   });
 
-  // Instant Touch / Swipe directly on the LCD (turns immediately on drag, supports chained swipes)
+  // Instant Touch / Swipe across the LCD & bezel (turns immediately on 14px drag, supports chained swipes)
+  const swipeTarget = document.querySelector('.lcd-housing') || canvas;
   let pointerStart = null;
-  canvas.addEventListener('pointerdown', (e) => {
+  swipeTarget.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     ensureAudio();
     pointerStart = { id: e.pointerId, x: e.clientX, y: e.clientY, swiped: false };
-    if (canvas.setPointerCapture) {
-      try { canvas.setPointerCapture(e.pointerId); } catch {}
+    if (swipeTarget.setPointerCapture) {
+      try { swipeTarget.setPointerCapture(e.pointerId); } catch {}
     }
   });
-  canvas.addEventListener('pointermove', (e) => {
+  swipeTarget.addEventListener('pointermove', (e) => {
     if (!pointerStart || e.pointerId !== pointerStart.id) return;
     const dx = e.clientX - pointerStart.x;
     const dy = e.clientY - pointerStart.y;
-    if (Math.hypot(dx, dy) < 18) return;
+    if (dx * dx + dy * dy < 196) return; // 14px threshold without Math.hypot overhead
     if (Math.abs(dx) > Math.abs(dy)) {
       handleAction(dx > 0 ? 'RIGHT' : 'LEFT');
     } else {
@@ -1458,7 +1545,7 @@
     pointerStart.y = e.clientY;
     pointerStart.swiped = true;
   });
-  canvas.addEventListener('pointerup', (e) => {
+  swipeTarget.addEventListener('pointerup', (e) => {
     if (!pointerStart || e.pointerId !== pointerStart.id) return;
     const wasSwiped = pointerStart.swiped;
     pointerStart = null;
@@ -1466,7 +1553,7 @@
       handleAction('SELECT');
     }
   });
-  canvas.addEventListener('pointercancel', () => {
+  swipeTarget.addEventListener('pointercancel', () => {
     pointerStart = null;
   });
 
@@ -1579,7 +1666,6 @@
   buildMazeButtons();
   syncSideUI();
   markDirty();
-  requestAnimationFrame(loop);
 
   window.NokiaSnakeGame = {
     MAZES,
@@ -1593,6 +1679,9 @@
       isViewActive = Boolean(active);
       if (!isViewActive) {
         pauseToMenu();
+        stopLoop();
+      } else {
+        markDirty();
       }
     },
     isPlaying() {

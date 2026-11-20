@@ -417,6 +417,8 @@ test('ships Google Analytics and Adsterra/AdSense banner integration cleanly', a
   assert.match(cfg, /adsenseClient/);
   assert.match(cfg, /56e2816bafdeaff197557127db6d00c1/);
   assert.match(cfg, /c1fc32364c6976c15a7cdb81b335c3f9/);
+  assert.match(cfg, /fa01832e4a5df0b7f2cce54d031fbbfc/);
+  assert.match(cfg, /42aa37c66fbc1795d07094d9be457c9a/);
 
   const toolsRes = await fetch(`${baseUrl}/google-tools.js`);
   assert.equal(toolsRes.status, 200);
@@ -424,6 +426,7 @@ test('ships Google Analytics and Adsterra/AdSense banner integration cleanly', a
   assert.match(tools, /googletagmanager\.com\/gtag\/js/);
   assert.match(tools, /pagead2\.googlesyndication\.com/);
   assert.match(tools, /frame\.srcdoc/);
+  assert.match(tools, /data-cfasync/);
 
   const adsRes = await fetch(`${baseUrl}/ads.txt`);
   assert.equal(adsRes.status, 200);

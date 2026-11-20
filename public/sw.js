@@ -1,14 +1,14 @@
 'use strict';
 
-const CACHE_NAME = 'nokia-snake-online-v5';
+const CACHE_NAME = 'nokia-snake-online-v6';
 const APP_SHELL = [
   './',
   './index.html',
-  './styles.css?v=6',
-  './game.js?v=6',
+  './styles.css?v=7',
+  './game.js?v=7',
   './firebase-config.js?v=2',
-  './google-config.js?v=3',
-  './google-tools.js?v=3',
+  './google-config.js?v=4',
+  './google-tools.js?v=4',
   './app.js?v=4',
   './favicon.svg',
   './icon-192.png',

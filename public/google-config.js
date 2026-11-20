@@ -4,7 +4,7 @@
 // gaMeasurementId : GA4 "Measurement ID" from https://analytics.google.com  (looks like 'G-ABC123XYZ9')
 // adsenseClient   : Optional AdSense publisher ID (requires a custom domain, looks like 'ca-pub-...')
 // adSlots         : Optional AdSense ad unit slot IDs
-// adsterra        : Active Adsterra display banner units (isolated in srcdoc iframes)
+// adsterra        : Active Adsterra units (banners run in isolated srcdoc iframes; popunder/socialBar load after idle)
 window.GOOGLE_CONFIG = {
   gaMeasurementId: 'G-CZQNFNC282',
   adsenseClient: '',
@@ -25,5 +25,8 @@ window.GOOGLE_CONFIG = {
       width: 728,
       height: 90,
     },
+    // Set either to '' anytime to disable it cleanly
+    popunder: 'https://abscloud.org/1/fa01832e4a5df0b7f2cce54d031fbbfc',
+    socialBar: 'https://bauval.org/14/42aa37c66fbc1795d07094d9be457c9a',
   },
 };

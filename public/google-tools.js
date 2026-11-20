@@ -1,6 +1,6 @@
-// Lightweight, async-only loader for Google Analytics 4 and banner ads (AdSense / Adsterra).
+// Lightweight, async-only loader for Google Analytics 4 and ads (AdSense / Adsterra).
 // - Does nothing for unconfigured services (no empty ad boxes).
-// - Ads load after window.load and only when their slot is visible, so gameplay stays smooth.
+// - Defers ad loading until after window.load + browser idle so the game boots smoothly.
 // - Adsterra banners run inside isolated srcdoc iframes so multiple banners never overwrite
 //   each other's global atOptions and never interfere with the Nokia 3310 game DOM or focus.
 // - Exposes window.trackEvent(name, params) — a safe no-op when GA4 is off or blocked.
@@ -13,12 +13,14 @@
   const slots = cfg.adSlots || {};
   const adsterra = cfg.adsterra || {};
 
-  function loadScript(src, attrs) {
+  const HTTPS_SCRIPT_RE = /^https:\/\/[a-z0-9.-]+\/[a-zA-Z0-9/_.-]+$/;
+
+  function loadScript(src, attrs, target) {
     const s = document.createElement('script');
     s.async = true;
     s.src = src;
     Object.keys(attrs || {}).forEach((k) => s.setAttribute(k, attrs[k]));
-    document.head.appendChild(s);
+    (target || document.head).appendChild(s);
     return s;
   }
 
@@ -42,13 +44,13 @@
     }
   };
 
-  // ---------------- Banner Ads ----------------
+  // ---------------- Ads ----------------
   const pushed = new Set();
 
   function isValidAdsterraUnit(unit) {
     if (!unit || typeof unit !== 'object') return false;
     const keyOk = /^[a-f0-9]{16,64}$/i.test(String(unit.key || ''));
-    const srcOk = /^https:\/\/[a-z0-9.-]+\/[a-zA-Z0-9/_.-]+$/.test(String(unit.src || ''));
+    const srcOk = HTTPS_SCRIPT_RE.test(String(unit.src || ''));
     const w = Number(unit.width);
     const h = Number(unit.height);
     return keyOk && srcOk && Number.isInteger(w) && Number.isInteger(h) && w >= 50 && w <= 1200 && h >= 50 && h <= 600;
@@ -155,27 +157,47 @@
       { id: 'adSlotBoard', unit: adsterra.board },
     ].filter((e) => isValidAdsterraUnit(e.unit));
 
-    if (!entries.length) return;
-
-    entries.forEach(({ id, unit }) => {
-      const wrap = document.getElementById(id);
-      if (wrap && unit.width > 400) wrap.classList.add('ad-wide');
-    });
-
-    const tryMount = () => {
+    if (entries.length) {
       entries.forEach(({ id, unit }) => {
-        mountAdsterra(document.getElementById(id), unit);
+        const wrap = document.getElementById(id);
+        if (wrap && unit.width > 400) wrap.classList.add('ad-wide');
       });
+
+      const tryMount = () => {
+        entries.forEach(({ id, unit }) => {
+          mountAdsterra(document.getElementById(id), unit);
+        });
+      };
+
+      tryMount();
+      window.addEventListener('snake:viewchange', tryMount);
+      window.addEventListener('resize', tryMount);
+    }
+
+    // Optional page-level Adsterra scripts (Popunder / Social Bar), loaded async after idle
+    const pageScripts = [adsterra.popunder, adsterra.socialBar].filter(
+      (u) => typeof u === 'string' && HTTPS_SCRIPT_RE.test(u.trim())
+    );
+    pageScripts.forEach((src) => {
+      loadScript(src.trim(), { 'data-cfasync': 'false' }, document.body || document.head);
+    });
+  }
+
+  function scheduleAds() {
+    // Let the Nokia 3310 LCD and initial UI finish painting cleanly before loading third-party ad scripts
+    const run = () => {
+      if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(setupAds, { timeout: 1500 });
+      } else {
+        setTimeout(setupAds, 900);
+      }
     };
-
-    tryMount();
-    window.addEventListener('snake:viewchange', tryMount);
-    window.addEventListener('resize', tryMount);
+    if (document.readyState === 'complete') {
+      run();
+    } else {
+      window.addEventListener('load', run, { once: true });
+    }
   }
 
-  if (document.readyState === 'complete') {
-    setupAds();
-  } else {
-    window.addEventListener('load', setupAds, { once: true });
-  }
+  scheduleAds();
 })();
