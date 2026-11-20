@@ -400,3 +400,35 @@ test('serves PWA assets, handles HEAD requests, blocks path traversal, and enfor
   assert.equal(wrongLen.status, 400);
   assert.equal(wrongLen.body.code, 'INVALID_LENGTH');
 });
+
+test('ships Google Analytics / AdSense integration that stays off until configured', async () => {
+  const html = await (await fetch(`${baseUrl}/`)).text();
+  assert.match(html, /google-config\.js/);
+  assert.match(html, /google-tools\.js/);
+  assert.match(html, /<h1[^>]*>[^<]*Nokia 3310[^<]*<\/h1>/);
+  assert.match(html, /id="adSlotPlay" class="ad-slot hidden"/);
+  assert.match(html, /id="adSlotBoard" class="ad-slot hidden"/);
+
+  const cfgRes = await fetch(`${baseUrl}/google-config.js`);
+  assert.equal(cfgRes.status, 200);
+  const cfg = await cfgRes.text();
+  assert.match(cfg, /gaMeasurementId/);
+  assert.match(cfg, /adsenseClient/);
+
+  const toolsRes = await fetch(`${baseUrl}/google-tools.js`);
+  assert.equal(toolsRes.status, 200);
+  const tools = await toolsRes.text();
+  assert.match(tools, /googletagmanager\.com\/gtag\/js/);
+  assert.match(tools, /pagead2\.googlesyndication\.com/);
+
+  const adsRes = await fetch(`${baseUrl}/ads.txt`);
+  assert.equal(adsRes.status, 200);
+
+  const privacy = await (await fetch(`${baseUrl}/privacy.html`)).text();
+  assert.match(privacy, /Google Analytics/);
+  assert.match(privacy, /Google AdSense/);
+  assert.match(privacy, /adssettings\.google\.com/);
+
+  const sw = await (await fetch(`${baseUrl}/sw.js`)).text();
+  assert.match(sw, /google-tools\.js/);
+});

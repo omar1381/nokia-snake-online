@@ -39,6 +39,11 @@ An authentic Nokia 3310 Snake II web & mobile game with **smooth 60/120 FPS glid
    - `DATA_DIR` — Local `db.json` directory when Supabase is not configured (default: `./data`)
    - `SUPABASE_URL` & `SUPABASE_SERVICE_ROLE_KEY` — Optional Supabase PostgreSQL persistence (apply [supabase/schema.sql](supabase/schema.sql) once in Supabase SQL Editor).
 
+## Google Analytics, Search & Ads
+
+Paste your IDs in `public/google-config.js` (GA4 `G-...`, AdSense `ca-pub-...`, ad slot IDs). Empty values keep everything off.
+Step-by-step instructions: [docs/GOOGLE_LAUNCH_GUIDE.md](docs/GOOGLE_LAUNCH_GUIDE.md).
+
 ## API Endpoints (Node.js Server)
 
 - `GET /api/health` — Server health check & active storage mode

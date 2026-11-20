@@ -124,7 +124,13 @@
     onlineStatus.innerHTML = html;
   }
 
+  // Google Analytics 4 events (no-op until a GA4 ID is set in google-config.js)
+  function track(name, params) {
+    if (typeof window.trackEvent === 'function') window.trackEvent(name, params);
+  }
+
   async function shareGame(runInfo = null) {
+    track('share', { method: navigator.share ? 'native' : 'clipboard', content_type: runInfo ? 'score' : 'game' });
     const shareUrl = 'https://omar1381.github.io/nokia-snake-online/';
     const text = runInfo
       ? `I scored ${runInfo.score}${runInfo.rank ? ` (#${runInfo.rank})` : ''} in Nokia 3310 Snake II Online! Can you beat me?`
@@ -566,6 +572,9 @@
     if (isBoard) {
       refreshLeaderboard();
     }
+
+    window.dispatchEvent(new CustomEvent('snake:viewchange', { detail: { view: currentView } }));
+    if (pushHistory) track('view_change', { view: currentView });
   }
 
   tabPlay.addEventListener('click', () => setView('play'));
@@ -615,6 +624,15 @@
 
       failedSubmission = null;
       pendingRun = null;
+
+      track('post_score', {
+        score: submission.score,
+        level: submission.topSpeed,
+        character: MAZE_NAMES[submission.maze] || 'unknown',
+        rank: result.globalRank,
+        personal_best: Boolean(result.isPersonalBest),
+        world_record: Boolean(result.isWorldRecord),
+      });
 
       updatePlayerSummaryUI({
         bestScore: result.bestScore,
@@ -672,6 +690,7 @@
       nicknameInput.value = playerName;
       localStorage.setItem(STORAGE_NAME_KEY, playerName);
       updatePlayerSummaryUI(summary);
+      track('sign_up', { method: 'nickname' });
 
       if (pendingRun) {
         const toPost = pendingRun;
@@ -723,6 +742,7 @@
         failedSubmission = null;
         activeRunId = null;
         hideToast();
+        track('level_start', { level_name: MAZE_NAMES[maze] || 'unknown' });
         if (playerName) {
           setStatus(`Playing as <strong>${escapeHtml(playerName)}</strong> &middot; ${MAZE_NAMES[maze]}`, 'ok');
         } else {
@@ -745,6 +765,14 @@
 
       async onGameOver(run) {
         isGameRunning = false;
+        track('level_end', {
+          level_name: MAZE_NAMES[run.maze] || 'unknown',
+          success: Boolean(run.victory),
+          score: run.score,
+          foods: run.foods,
+          top_speed: run.topSpeed,
+          duration_sec: Math.round((Number(run.durationMs) || 0) / 1000),
+        });
         const runId = activeRunId || (activeRunPromise ? await activeRunPromise : null);
         activeRunId = null;
         activeRunPromise = null;

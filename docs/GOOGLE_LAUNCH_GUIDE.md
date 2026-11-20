@@ -1,89 +1,86 @@
-# Google Publish & Advertising Guide — Nokia 3310 Snake II Online
+# Google Guide — Search, Analytics & Ads (Web)
 
-Everything on the web side is already built and live:
-- **Live Game URL:** `https://omar1381.github.io/nokia-snake-online/`
-- **Privacy Policy URL (required by Google Play & Ads):** `https://omar1381.github.io/nokia-snake-online/privacy.html`
-- **Sitemap URL:** `https://omar1381.github.io/nokia-snake-online/sitemap.xml`
-- **App Icons (Play Store / PWA):** `icon-512.png` (512×512), `icon-192.png` (192×192), `og-image.png` (1200×630)
-- **Service Worker + Web App Manifest:** Registered automatically (`sw.js`, `manifest.webmanifest`)
+Live game: `https://omar1381.github.io/nokia-snake-online/`
+Privacy Policy: `https://omar1381.github.io/nokia-snake-online/privacy.html`
+Sitemap: `https://omar1381.github.io/nokia-snake-online/sitemap.xml`
 
----
-
-## Step 1: Appear on Google Search (Free — 2 minutes)
-
-1. Open **https://search.google.com/search-console** and sign in with your Google account.
-2. Click **Add property** → **URL prefix** → enter:
-   ```
-   https://omar1381.github.io/nokia-snake-online/
-   ```
-3. Under **Verify ownership**, select **HTML tag** and copy the `<meta name="google-site-verification" content="..." />` line.
-   - Add that tag inside `<head>` in `public/index.html` and push to `main` (or send it in chat and it will be added automatically).
-4. Click **Verify** in Google Search Console.
-5. In the left menu, click **Sitemaps** → enter `sitemap.xml` → click **Submit**.
-6. In the top search bar (**Inspect any URL**), paste `https://omar1381.github.io/nokia-snake-online/` → click **Request Indexing**.
+All Google settings live in **one file**: [`public/google-config.js`](../public/google-config.js).
+Empty values = feature switched off (no scripts load, no empty ad boxes).
 
 ---
 
-## Step 2: Publish on Google Play Store as an Android App (TWA — ~15 minutes)
+## Step 1 — Google Analytics 4 (free, works on github.io)
 
-Your web app is already **100% PWABuilder / Android TWA ready** (HTTPS, Service Worker, 192px & 512px PNG icons, Privacy Policy).
+1. Go to **https://analytics.google.com** → **Admin** (gear icon, bottom left).
+2. If you already have a property: **Data streams** → open your **Web** stream.
+   If not: **Create → Property** → name `Snake II` → **Web** stream → URL `omar1381.github.io/nokia-snake-online`.
+3. Copy the **Measurement ID** (looks like `G-ABC123XYZ9`).
+4. Paste it in `public/google-config.js` → `gaMeasurementId: 'G-ABC123XYZ9'` → push to `main`.
 
-1. **Generate the Android `.aab` package (free):**
-   - Go to **https://www.pwabuilder.com/**
-   - Enter `https://omar1381.github.io/nokia-snake-online/` → click **Start**.
-   - Click **Package For Stores** → **Android** → **Generate Package**.
-   - Download the `.zip` file. Inside you'll find:
-     - Your signed `.aab` file (to upload to Google Play)
-     - `assetlinks.json` (put this at `public/.well-known/assetlinks.json` and push to `main` so the browser address bar disappears completely inside the Android app!)
-2. **Create your Google Play Developer account** at **https://play.google.com/console** (one-time \$25 Google fee).
-3. **Create App & Store Listing** — copy and paste these ready-made fields:
-   - **App name:** `Snake II — Nokia 3310 Online`
-   - **Short description (78 chars):**
-     `Classic Nokia 3310 Snake II with smooth 60 FPS gliding & live global rankings!`
-   - **Full description:**
-     ```
-     Relive the iconic Nokia 3310 Snake II — rebuilt for modern phones with buttery-smooth 60 FPS movement and a live global Top Players leaderboard!
+Events sent automatically (Reports → Engagement → Events):
 
-     FEATURES:
-     • Authentic Nokia 3310 monochrome green LCD with toggleable LED backlight & piezo buzzer sounds
-     • 4 classic Xpress-on covers: Midnight Blue, Arctic Silver, Sahara Yellow & Volcano Red
-     • 6 original mazes: No Maze, Box, Tunnel, Mill, Rails & Apartment
-     • Fair progressive speed — everyone starts at Speed 1 and speeds up every 4 apples
-     • Bonus critters every 5 apples for timed extra points
-     • Live global Top Players leaderboard with Top 3 podium, filters & nickname protection
-     • Play by swiping directly on the LCD screen or tapping the classic Nokia keypad
-     • Works offline for practice and syncs scores automatically online
-     ```
-   - **Category:** `Games → Arcade`
-   - **Privacy Policy URL:** `https://omar1381.github.io/nokia-snake-online/privacy.html`
-   - **App Icon:** Upload `public/icon-512.png`
-   - **Feature Graphic:** Upload `public/og-image.png` (or resize to 1024×500)
-   - **Data Safety:** Declare only *App info / Player ID (nickname & game scores)*, not shared with third parties, encrypted in transit (HTTPS).
+| Event | When | Extra info |
+|---|---|---|
+| `page_view` | Someone opens the site | automatic |
+| `level_start` | A game starts | `level_name` (maze) |
+| `level_end` | A game ends | `score`, `foods`, `top_speed`, `duration_sec`, `success` |
+| `post_score` | Score saved to leaderboard | `score`, `rank`, `personal_best`, `world_record` |
+| `sign_up` | Nickname saved | — |
+| `share` | Share button pressed | `method`, `content_type` |
+| `view_change` | Play ⇄ Top Players | `view` |
 
 ---
 
-## Step 3: Advertise & Grow Players (Free + Google Ads)
+## Step 2 — Show the site on Google Search (Search Console)
 
-### A. Free Organic Promotion (Start here — \$0)
-- **Built-in Share Button:** Players can tap **Share** right after finishing a game (or **Share game with friends** in the footer) to challenge friends via WhatsApp, Instagram, iMessage, or X.
-- **Launch post template** (for WhatsApp groups, TikTok/Reels bio, Reddit `r/WebGames`, `r/indiegames`, `r/retrogaming`, X/Twitter):
-  > I built a playable Nokia 3310 Snake II with smooth 60 FPS movement, all 6 classic mazes, original piezo sounds, and a live global Top Players leaderboard — works right in your phone browser (no download needed)!
-  > Try to beat #1: https://omar1381.github.io/nokia-snake-online/
-- **Short-form video idea (TikTok / YouTube Shorts / Instagram Reels):** Record 15 seconds of your phone playing Snake II with the green Nokia 3310 cover + sound on, caption: *"Can you beat #1 on the live Nokia 3310 Snake II leaderboard? Link in bio!"*
+1. Open **https://search.google.com/search-console** → **Add property** → **URL prefix** →
+   `https://omar1381.github.io/nokia-snake-online/`
+2. Verify ownership — easiest options:
+   - **Google Analytics** (after Step 1 is live, with the same Google account) → click **Verify**. Done.
+   - or **HTML tag** → copy the `<meta name="google-site-verification" ...>` line → paste it in
+     `public/index.html` under the "Google Search Console" comment → push → **Verify**.
+3. Left menu → **Sitemaps** → type `sitemap.xml` → **Submit**.
+4. Top bar **URL inspection** → paste the game URL → **Request indexing**.
 
-### B. Google Ads Campaign (Paid — Optional)
-1. Go to **https://ads.google.com** → **New Campaign** → Goal: **Website traffic** (or **App promotion** once live on Google Play).
-2. **Landing Page URL:** `https://omar1381.github.io/nokia-snake-online/`
-3. **Target Keywords:**
-   - `nokia 3310 snake online`
-   - `play snake 2 online free`
-   - `classic nokia snake game`
-   - `retro snake leaderboard`
-4. **Ad Headlines (30 chars max):**
-   - `Nokia 3310 Snake II Online`
-   - `Play Classic Snake — Free`
-   - `Live Global Top Players`
-   - `No Download · Phone & PC`
-5. **Ad Descriptions (90 chars max):**
-   - `Play authentic Nokia 3310 Snake II right in your browser. 6 mazes & live global ranks!`
-   - `Smooth 60 FPS gliding, original green LCD, and classic sounds. Can you reach #1?`
+Indexing usually takes a few days to ~2 weeks. Searching `site:omar1381.github.io` shows what Google has indexed.
+To rank for "Nokia snake online", share the link (Reddit r/WebGames, Facebook groups, X, WhatsApp) — backlinks and real visits matter most.
+
+---
+
+## Step 3 — Earn money with ads
+
+### ⚠️ Important: AdSense and `github.io`
+Google AdSense **does not approve `*.github.io` addresses** — it needs a site you own at the root (e.g. `nokiasnake.com`),
+and `ads.txt` must be at the domain root. So for AdSense you need a **custom domain** (about \$2–\$12 / year).
+
+### Option A — Google AdSense with a custom domain (recommended)
+1. **Buy a domain** (Cloudflare Registrar, Porkbun or Namecheap), e.g. `nokiasnake2.com`.
+2. **Point it to GitHub Pages:**
+   - At the domain DNS, add 4 `A` records for `@` → `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, `185.199.111.153`
+     and a `CNAME` record `www` → `omar1381.github.io`.
+   - GitHub repo → **Settings → Pages → Custom domain** → enter the domain → **Save** → tick **Enforce HTTPS**.
+   - Tell the assistant the domain, so canonical URL, sitemap, robots.txt and share links get updated.
+3. **Apply to AdSense:** https://adsense.google.com → **Get started** → add your domain.
+   AdSense shows a publisher ID `ca-pub-XXXXXXXXXXXXXXXX`.
+4. Paste it in `public/google-config.js` → `adsenseClient: 'ca-pub-...'`, and put the real line in
+   `public/ads.txt` (`google.com, pub-XXXXXXXXXXXXXXXX, DIRECT, f08c47fec0942fa0`). Push → in AdSense click **Request review**.
+5. After approval: AdSense → **Ads → By ad unit → Display ads** → create 2 units (e.g. `Play banner`, `Board banner`)
+   → copy each `data-ad-slot` number into `adSlots.play` and `adSlots.board`. Push.
+6. AdSense → **Privacy & messaging** → create the **GDPR consent message** (required for EU/UK visitors).
+7. If you turn on **Auto ads**, disable **Vignette** and **Anchor** ads (or exclude the game area) so ads never cover the phone while playing.
+
+Ad placements in the game are already built: one banner under the side cards on the Play page and one under the rankings on the Top Players page.
+They are labelled "Advertisement", never overlap the Nokia phone/LCD, and load after the page is ready so gameplay stays smooth.
+
+### Option B — Earn without buying a domain
+- **Game portals** (they show ads and share revenue, plus bring players): CrazyGames (developer.crazygames.com), GameDistribution, Poki (by invitation), itch.io (donations / pay-what-you-want).
+- **Ad networks that accept github.io** (e.g. Adsterra, Monetag): approve fast, but lower-quality ads. Use only **banner** formats — never pop-unders or redirects, they ruin the game and hurt Google ranking.
+
+---
+
+## Checklist
+- [ ] GA4 Measurement ID in `google-config.js`
+- [ ] Search Console verified + `sitemap.xml` submitted + indexing requested
+- [ ] Custom domain connected to GitHub Pages (for AdSense)
+- [ ] AdSense publisher ID in `google-config.js` + `ads.txt` updated + review requested
+- [ ] Ad unit slot IDs added after approval + GDPR consent message enabled

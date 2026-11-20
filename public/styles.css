@@ -223,6 +223,59 @@ body {
   text-decoration: underline;
 }
 
+/* Ad slots — only shown once AdSense is configured; reserve height to avoid layout jumps */
+.ad-slot {
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  padding: 8px;
+  min-height: 120px;
+  overflow: hidden;
+}
+
+.ad-slot.hidden {
+  display: none;
+}
+
+.ad-label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+  text-align: center;
+}
+
+#adSlotBoard {
+  margin-top: 16px;
+}
+
+/* About / How to play */
+.about-section {
+  margin-top: 28px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.about-section p {
+  margin: 6px 0 0;
+}
+
+.about-title {
+  margin: 0 0 4px;
+  font-size: 17px;
+  color: var(--text);
+}
+
+.about-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px 20px;
+  margin-top: 14px;
+}
+
 .side-stack {
   width: 100%;
   max-width: 400px;
