@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE_NAME = 'nokia-snake-online-v7';
+const CACHE_NAME = 'nokia-snake-online-v8';
 const APP_SHELL = [
   './',
   './index.html',
@@ -42,8 +42,10 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/')) return;
 
+  const networkReq = req.mode === 'navigate' ? new Request(req, { cache: 'no-cache' }) : req;
+
   event.respondWith(
-    fetch(req)
+    fetch(networkReq)
       .then((res) => {
         if (res && res.status === 200 && res.type === 'basic') {
           const copy = res.clone();
