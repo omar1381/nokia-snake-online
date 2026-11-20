@@ -37,10 +37,17 @@
   const searchInput = document.getElementById('searchInput');
   const periodButtons = document.querySelectorAll('.period-btn');
 
-  // Static hosting (e.g. GitHub Pages) automatically uses local browser storage
-  let useLocalMode =
+  // Firebase Realtime Database mode (shared online leaderboard on GitHub Pages)
+  const firebaseDbUrl =
+    typeof window.FIREBASE_DB_URL === 'string'
+      ? window.FIREBASE_DB_URL.trim().replace(/\/+$/, '')
+      : '';
+  const useFirebaseMode = Boolean(firebaseDbUrl);
+  const useStaticRouting =
+    useFirebaseMode ||
     window.location.protocol === 'file:' ||
     window.location.hostname.endsWith('.github.io');
+  const useLocalMode = !useFirebaseMode && useStaticRouting;
 
   // State
   let currentView =
@@ -72,6 +79,14 @@
       localStorage.setItem(STORAGE_SECRET_KEY, key);
     }
     return key;
+  }
+
+  async function hashPlayerKey(key) {
+    if (window.crypto && window.crypto.subtle && typeof TextEncoder !== 'undefined') {
+      const buf = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(key)));
+      return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
+    }
+    return String(key);
   }
 
   function escapeHtml(str) {
@@ -116,7 +131,206 @@
     playerRankStat.textContent = summary.globalRank != null ? `#${summary.globalRank}` : '–';
   }
 
-  // Local fallback store for static deployments (e.g. GitHub Pages)
+  // Shared client-side validation & leaderboard builders (used by Firebase & local fallback)
+  function validateNicknameClient(rawName) {
+    const name = String(rawName || '').trim().replace(/\s+/g, ' ');
+    if (name.length < 2 || name.length > 20) {
+      throw new Error('Nickname must be between 2 and 20 characters.');
+    }
+    if (!/^[A-Za-z0-9 _.-]+$/.test(name)) {
+      throw new Error('Use letters, numbers, spaces, dots, hyphens, or underscores.');
+    }
+    return name;
+  }
+
+  function computeClientRankings(scores) {
+    const byPlayer = new Map();
+    for (const s of scores) {
+      if (!s || typeof s.name !== 'string') continue;
+      const k = s.name.toLowerCase();
+      const existing = byPlayer.get(k);
+      if (!existing) {
+        byPlayer.set(k, { ...s, games: 1 });
+      } else {
+        existing.games += 1;
+        const isBetter =
+          s.score > existing.score ||
+          (s.score === existing.score && s.topSpeed > existing.topSpeed) ||
+          (s.score === existing.score && s.topSpeed === existing.topSpeed && s.createdAt < existing.createdAt);
+        if (isBetter) {
+          Object.assign(existing, s);
+        }
+      }
+    }
+    return Array.from(byPlayer.values())
+      .sort((a, b) =>
+        b.score !== a.score
+          ? b.score - a.score
+          : b.topSpeed !== a.topSpeed
+          ? b.topSpeed - a.topSpeed
+          : a.createdAt - b.createdAt
+      )
+      .map((row, idx) => ({ rank: idx + 1, ...row }));
+  }
+
+  function summaryFromClientScores(scores, name) {
+    const all = computeClientRankings(scores);
+    const found = all.find((r) => r.name.toLowerCase() === name.toLowerCase());
+    if (!found) return { name, bestScore: null, globalRank: null, gamesPlayed: 0 };
+    return { name: found.name, bestScore: found.score, globalRank: found.rank, gamesPlayed: found.games };
+  }
+
+  function buildClientLeaderboard(scores, { period = 'all', maze = 'all', search = '', limit = 100 } = {}) {
+    const now = Date.now();
+    const dayAgo = now - 24 * 60 * 60 * 1000;
+    const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+
+    const allRankings = computeClientRankings(scores);
+    const top = allRankings[0] || null;
+    const totalDurationMs = scores.reduce((sum, s) => sum + (Number(s.durationMs) || 0), 0);
+
+    let filtered = scores;
+    if (period === 'today') filtered = filtered.filter((s) => s.createdAt >= dayAgo);
+    else if (period === 'week') filtered = filtered.filter((s) => s.createdAt >= weekAgo);
+    if (maze !== 'all' && maze !== '') {
+      const mIdx = Number(maze);
+      if (Number.isInteger(mIdx)) filtered = filtered.filter((s) => s.maze === mIdx);
+    }
+
+    const fullRankings = computeClientRankings(filtered);
+    const q = String(search || '').trim().toLowerCase();
+    const searched = q ? fullRankings.filter((r) => r.name.toLowerCase().includes(q)) : fullRankings;
+
+    return {
+      stats: {
+        worldRecord: top
+          ? { score: top.score, name: top.name, maze: top.maze, topSpeed: top.topSpeed, durationMs: top.durationMs }
+          : null,
+        totalPlayers: allRankings.length,
+        totalGames: scores.length,
+        gamesToday: scores.filter((s) => s.createdAt >= dayAgo).length,
+        hoursPlayed: Math.round((totalDurationMs / 3600000) * 10) / 10,
+      },
+      rankings: searched.slice(0, Number(limit) || 100),
+      totalMatching: searched.length,
+      totalPlayersInFilter: fullRankings.length,
+      recentGames: [...scores].sort((a, b) => b.createdAt - a.createdAt).slice(0, 15),
+      updatedAt: now,
+    };
+  }
+
+  // Firebase Realtime Database store (works directly from GitHub Pages with no server!)
+  const firebaseStore = (() => {
+    function toFbKey(lower) {
+      return lower.replace(/_/g, '_u_').replace(/\./g, '_d_');
+    }
+
+    async function fbReq(path, options = {}) {
+      const res = await fetch(`${firebaseDbUrl}/${path}.json`, {
+        headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
+        ...options,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg = (data && data.error) || `Database request failed (${res.status})`;
+        throw new Error(msg);
+      }
+      return data;
+    }
+
+    async function fetchAllScores() {
+      const data = await fbReq('scores');
+      if (!data || typeof data !== 'object') return [];
+      return Object.values(data).filter((s) => s && typeof s === 'object' && typeof s.score === 'number');
+    }
+
+    async function ensurePlayer(rawName, rawKey) {
+      const name = validateNicknameClient(rawName);
+      const lower = name.toLowerCase();
+      const fbKey = encodeURIComponent(toFbKey(lower));
+      const keyHash = await hashPlayerKey(rawKey);
+
+      const existing = await fbReq(`players/${fbKey}`);
+      if (existing) {
+        if (existing.keyHash !== keyHash) {
+          throw new Error('That nickname is already claimed by another player.');
+        }
+        if (existing.name !== name) {
+          await fbReq(`players/${fbKey}`, {
+            method: 'PUT',
+            body: JSON.stringify({ name, keyHash, createdAt: existing.createdAt || Date.now() }),
+          });
+        }
+        return name;
+      }
+
+      await fbReq(`players/${fbKey}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name, keyHash, createdAt: Date.now() }),
+      });
+      return name;
+    }
+
+    async function registerPlayer(rawName, rawKey) {
+      const savedName = await ensurePlayer(rawName, rawKey);
+      const scores = await fetchAllScores();
+      return summaryFromClientScores(scores, savedName);
+    }
+
+    async function getPlayerSummary(name) {
+      const scores = await fetchAllScores();
+      return summaryFromClientScores(scores, name);
+    }
+
+    async function submitScore(payload) {
+      const canonicalName = await ensurePlayer(payload.name, payload.playerKey);
+      const existingScores = await fetchAllScores();
+      const lower = canonicalName.toLowerCase();
+      const prevBestAll = existingScores.reduce((m, s) => Math.max(m, s.score), 0);
+      const prevPlayerBest = existingScores
+        .filter((s) => s.name.toLowerCase() === lower)
+        .reduce((m, s) => Math.max(m, s.score), 0);
+
+      const id = `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+      const entry = {
+        id,
+        name: canonicalName,
+        score: Number(payload.score),
+        startSpeed: 1,
+        topSpeed: Number(payload.topSpeed),
+        maze: Number(payload.maze),
+        foods: Number(payload.foods),
+        length: Number(payload.length),
+        durationMs: Math.max(250, Math.round(Number(payload.durationMs) || 250)),
+        createdAt: Date.now(),
+      };
+
+      await fbReq(`scores/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(entry),
+      });
+
+      const allScores = [...existingScores, entry];
+      const summary = summaryFromClientScores(allScores, entry.name);
+      return {
+        entry,
+        bestScore: summary.bestScore,
+        globalRank: summary.globalRank,
+        gamesPlayed: summary.gamesPlayed,
+        isPersonalBest: entry.score > prevPlayerBest,
+        isWorldRecord: entry.score > prevBestAll,
+      };
+    }
+
+    async function getLeaderboard(opts = {}) {
+      const scores = await fetchAllScores();
+      return buildClientLeaderboard(scores, opts);
+    }
+
+    return { registerPlayer, getPlayerSummary, submitScore, getLeaderboard };
+  })();
+
+  // Local fallback store when no server and no Firebase URL are configured
   const localStore = (() => {
     function loadScores() {
       try {
@@ -131,44 +345,12 @@
       localStorage.setItem(STORAGE_LOCAL_SCORES_KEY, JSON.stringify(scores));
     }
 
-    function computeRankings(scores) {
-      const byPlayer = new Map();
-      for (const s of scores) {
-        const k = s.name.toLowerCase();
-        const existing = byPlayer.get(k);
-        if (!existing) {
-          byPlayer.set(k, { ...s, games: 1 });
-        } else {
-          existing.games += 1;
-          const isBetter =
-            s.score > existing.score ||
-            (s.score === existing.score && s.topSpeed > existing.topSpeed) ||
-            (s.score === existing.score && s.topSpeed === existing.topSpeed && s.createdAt < existing.createdAt);
-          if (isBetter) {
-            Object.assign(existing, s);
-          }
-        }
-      }
-      return Array.from(byPlayer.values())
-        .sort((a, b) => (b.score !== a.score ? b.score - a.score : b.topSpeed !== a.topSpeed ? b.topSpeed - a.topSpeed : a.createdAt - b.createdAt))
-        .map((row, idx) => ({ rank: idx + 1, ...row }));
-    }
-
     function getPlayerSummary(name) {
-      const all = computeRankings(loadScores());
-      const found = all.find((r) => r.name.toLowerCase() === name.toLowerCase());
-      if (!found) return { name, bestScore: null, globalRank: null, gamesPlayed: 0 };
-      return { name: found.name, bestScore: found.score, globalRank: found.rank, gamesPlayed: found.games };
+      return summaryFromClientScores(loadScores(), name);
     }
 
     function registerPlayer(rawName) {
-      const name = String(rawName || '').trim().replace(/\s+/g, ' ');
-      if (name.length < 2 || name.length > 20) {
-        throw new Error('Nickname must be between 2 and 20 characters.');
-      }
-      if (!/^[A-Za-z0-9 _.-]+$/.test(name)) {
-        throw new Error('Use letters, numbers, spaces, dots, hyphens, or underscores.');
-      }
+      const name = validateNicknameClient(rawName);
       return getPlayerSummary(name);
     }
 
@@ -206,52 +388,19 @@
       };
     }
 
-    function getLeaderboard({ period = 'all', maze = 'all', search = '', limit = 100 } = {}) {
-      const scores = loadScores();
-      const now = Date.now();
-      const dayAgo = now - 24 * 60 * 60 * 1000;
-      const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
-
-      const allRankings = computeRankings(scores);
-      const top = allRankings[0] || null;
-      const totalDurationMs = scores.reduce((sum, s) => sum + (Number(s.durationMs) || 0), 0);
-
-      let filtered = scores;
-      if (period === 'today') filtered = filtered.filter((s) => s.createdAt >= dayAgo);
-      else if (period === 'week') filtered = filtered.filter((s) => s.createdAt >= weekAgo);
-      if (maze !== 'all' && maze !== '') {
-        const mIdx = Number(maze);
-        if (Number.isInteger(mIdx)) filtered = filtered.filter((s) => s.maze === mIdx);
-      }
-
-      const fullRankings = computeRankings(filtered);
-      const q = String(search || '').trim().toLowerCase();
-      const searched = q ? fullRankings.filter((r) => r.name.toLowerCase().includes(q)) : fullRankings;
-
-      return {
-        stats: {
-          worldRecord: top
-            ? { score: top.score, name: top.name, maze: top.maze, topSpeed: top.topSpeed, durationMs: top.durationMs }
-            : null,
-          totalPlayers: allRankings.length,
-          totalGames: scores.length,
-          gamesToday: scores.filter((s) => s.createdAt >= dayAgo).length,
-          hoursPlayed: Math.round((totalDurationMs / 3600000) * 10) / 10,
-        },
-        rankings: searched.slice(0, Number(limit) || 100),
-        totalMatching: searched.length,
-        totalPlayersInFilter: fullRankings.length,
-        recentGames: [...scores].sort((a, b) => b.createdAt - a.createdAt).slice(0, 15),
-        updatedAt: now,
-      };
+    function getLeaderboard(opts = {}) {
+      return buildClientLeaderboard(loadScores(), opts);
     }
 
     return { registerPlayer, getPlayerSummary, submitScore, getLeaderboard };
   })();
 
   async function apiJson(url, options = {}) {
+    if (useFirebaseMode) {
+      return clientStoreDispatch(firebaseStore, url, options);
+    }
     if (useLocalMode) {
-      return localApiDispatch(url, options);
+      return clientStoreDispatch(localStore, url, options);
     }
     const res = await fetch(url, {
       headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
@@ -267,33 +416,31 @@
     return data;
   }
 
-  function localApiDispatch(url, options = {}) {
+  async function clientStoreDispatch(storeImpl, url, options = {}) {
     const parsed = new URL(url, window.location.origin);
     const body = options.body ? JSON.parse(options.body) : {};
     if (parsed.pathname === '/api/players') {
-      return Promise.resolve(localStore.registerPlayer(body.name));
+      return storeImpl.registerPlayer(body.name, body.playerKey);
     }
     if (parsed.pathname === '/api/players/me') {
       const name = parsed.searchParams.get('name') || '';
-      return Promise.resolve(name ? localStore.getPlayerSummary(name) : { name: null, bestScore: null, globalRank: null, gamesPlayed: 0 });
+      return name ? storeImpl.getPlayerSummary(name) : { name: null, bestScore: null, globalRank: null, gamesPlayed: 0 };
     }
     if (parsed.pathname === '/api/runs/start') {
-      return Promise.resolve({ runId: `local-${Date.now()}`, startedAt: Date.now(), startSpeed: 1 });
+      return { runId: `run-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`, startedAt: Date.now(), startSpeed: 1 };
     }
     if (parsed.pathname === '/api/scores') {
-      return Promise.resolve(localStore.submitScore(body));
+      return storeImpl.submitScore(body);
     }
     if (parsed.pathname === '/api/leaderboard') {
-      return Promise.resolve(
-        localStore.getLeaderboard({
-          period: parsed.searchParams.get('period') || 'all',
-          maze: parsed.searchParams.get('maze') || 'all',
-          search: parsed.searchParams.get('search') || '',
-          limit: parsed.searchParams.get('limit') || '100',
-        })
-      );
+      return storeImpl.getLeaderboard({
+        period: parsed.searchParams.get('period') || 'all',
+        maze: parsed.searchParams.get('maze') || 'all',
+        search: parsed.searchParams.get('search') || '',
+        limit: parsed.searchParams.get('limit') || '100',
+      });
     }
-    return Promise.resolve({});
+    return {};
   }
 
   // =========================================================================
@@ -313,7 +460,7 @@
     }
 
     if (pushHistory) {
-      if (useLocalMode) {
+      if (useStaticRouting) {
         const targetHash = isBoard ? '#leaderboard' : '#play';
         if (window.location.hash !== targetHash) {
           window.history.pushState({ view: currentView }, '', targetHash);
@@ -660,8 +807,17 @@
     }, 150);
   });
 
-  // Live SSE updates
+  // Live updates (SSE on Node server, 10s polling on Firebase)
   function connectEvents() {
+    if (useFirebaseMode) {
+      setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          refreshLeaderboard();
+          refreshMySummary();
+        }
+      }, 10000);
+      return;
+    }
     if (useLocalMode || typeof EventSource === 'undefined') return;
     const es = new EventSource('/api/events');
     es.addEventListener('score', () => {
