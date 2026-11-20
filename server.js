@@ -13,6 +13,7 @@ const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.ico': 'image/x-icon',
@@ -24,6 +25,7 @@ function sendJson(res, status, data) {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
     'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
   });
   res.end(body);
 }
@@ -83,13 +85,21 @@ function createServer({ dataDir, supabaseUrl, supabaseKey, fetchImpl } = {}) {
   }, 25000);
   heartbeat.unref();
 
-  function serveStatic(reqPath, res) {
+  function serveStatic(reqPath, res, headOnly = false) {
     const normalized = reqPath === '/' || reqPath === '/leaderboard' ? '/index.html' : reqPath;
-    const safeRel = path.normalize(normalized).replace(/^(\.\.(\/|\\|$))+/, '');
-    const filePath = path.join(PUBLIC_DIR, safeRel);
+    let decoded;
+    try {
+      decoded = decodeURIComponent(normalized);
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Bad Request');
+      return;
+    }
+    const safeRel = path.normalize(decoded).replace(/^(\.\.(\/|\\|$))+/, '');
+    const filePath = path.resolve(PUBLIC_DIR, safeRel.replace(/^[/\\]+/, ''));
 
-    if (!filePath.startsWith(PUBLIC_DIR)) {
-      res.writeHead(403);
+    if (filePath !== PUBLIC_DIR && !filePath.startsWith(PUBLIC_DIR + path.sep)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Forbidden');
       return;
     }
@@ -97,23 +107,34 @@ function createServer({ dataDir, supabaseUrl, supabaseKey, fetchImpl } = {}) {
     fs.stat(filePath, (err, stat) => {
       if (err || !stat.isFile()) {
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end('Not Found');
+        res.end(headOnly ? undefined : 'Not Found');
         return;
       }
       const ext = path.extname(filePath).toLowerCase();
       res.writeHead(200, {
         'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
+        'Content-Length': stat.size,
         'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=300',
+        'X-Content-Type-Options': 'nosniff',
       });
+      if (headOnly) {
+        res.end();
+        return;
+      }
       fs.createReadStream(filePath).pipe(res);
     });
   }
 
   const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    const pathname = url.pathname;
-
     try {
+      let url;
+      try {
+        url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      } catch {
+        return sendJson(res, 400, { code: 'INVALID_URL', message: 'Malformed request URL.' });
+      }
+      const pathname = url.pathname;
+
       // Health check
       if (req.method === 'GET' && pathname === '/api/health') {
         return sendJson(res, 200, { ok: true, storage: store.storageMode, time: Date.now() });
@@ -181,7 +202,7 @@ function createServer({ dataDir, supabaseUrl, supabaseKey, fetchImpl } = {}) {
       }
 
       if (req.method === 'GET' || req.method === 'HEAD') {
-        return serveStatic(pathname, res);
+        return serveStatic(pathname, res, req.method === 'HEAD');
       }
 
       res.writeHead(405);

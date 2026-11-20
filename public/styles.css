@@ -28,6 +28,7 @@ body {
   margin: 0;
   padding: 0;
   min-height: 100%;
+  overscroll-behavior-y: contain;
   background:
     radial-gradient(ellipse 70% 45% at 50% 0%, var(--bg-glow) 0%, transparent 65%),
     var(--bg);
@@ -144,9 +145,53 @@ body {
 .phone-stage {
   flex: 0 0 auto;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
   position: sticky;
   top: 20px;
+}
+
+.game-toast {
+  width: 100%;
+  max-width: 318px;
+  padding: 9px 12px;
+  border-radius: 11px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+}
+
+.game-toast.ok {
+  border-color: rgba(166, 220, 50, 0.45);
+  background: rgba(24, 34, 18, 0.96);
+  color: #dcf2ad;
+}
+
+.game-toast.error {
+  border-color: rgba(224, 108, 108, 0.5);
+  background: rgba(38, 22, 22, 0.96);
+  color: #f6baba;
+}
+
+.toast-action {
+  flex-shrink: 0;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  border-radius: 7px;
+  padding: 4px 9px;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .side-stack {
@@ -1295,6 +1340,7 @@ input[type="search"]:focus,
   .play-layout {
     flex-direction: column;
     align-items: center;
+    gap: 20px;
   }
   .phone-stage {
     position: static;
@@ -1302,10 +1348,81 @@ input[type="search"]:focus,
   .kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .kpi-card.kpi-highlight {
+    grid-column: 1 / -1;
+  }
   .podium-grid {
     grid-template-columns: 1fr;
   }
+  .podium-card.first {
+    order: -1;
+  }
   .board-main-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    padding: 12px 12px 36px;
+  }
+  .topbar {
+    margin-bottom: 14px;
+    gap: 10px;
+  }
+  .brand-sub {
+    display: none;
+  }
+  .nav-tab {
+    padding: 7px 13px;
+    font-size: 12.5px;
+  }
+  /* Prevent iOS Safari auto-zoom on form fields */
+  input[type="text"],
+  input[type="search"],
+  .filter-select {
+    font-size: 16px;
+  }
+  /* More comfortable thumb hit targets on phone screens */
+  .navi-btn {
+    height: 28px;
+  }
+  .c-btn {
+    height: 32px;
+  }
+  .rocker-half {
+    width: 38px;
+    height: 28px;
+  }
+  .num-key {
+    height: 42px;
+  }
+  .filter-bar {
+    gap: 8px;
+  }
+  .period-pills {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .period-btn {
+    flex: 1 1 0;
+    text-align: center;
+  }
+  .filter-select,
+  .filter-search {
+    margin-left: 0;
+    flex: 1 1 140px;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 360px) {
+  .nokia-body {
+    width: 294px;
+    padding: 14px 12px 18px;
+  }
+  #lcd {
+    width: 228px;
+    height: 130px;
   }
 }

@@ -2,9 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#121512" />
+  <meta name="description" content="Authentic Nokia 3310 Snake II online with gentle progressive speed and a live Top Players leaderboard." />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Snake II — Nokia 3310 Online</title>
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./styles.css?v=2" />
 </head>
 <body>
   <div class="app-shell">
@@ -28,8 +34,8 @@
       </a>
 
       <nav class="nav-pill" aria-label="Primary navigation">
-        <button type="button" class="nav-tab active" data-view="play" id="tabPlay">Play</button>
-        <button type="button" class="nav-tab" data-view="board" id="tabBoard">Top Players</button>
+        <button type="button" class="nav-tab active" data-view="play" id="tabPlay" aria-pressed="true">Play</button>
+        <button type="button" class="nav-tab" data-view="board" id="tabBoard" aria-pressed="false">Top Players</button>
       </nav>
     </header>
 
@@ -121,12 +127,13 @@
             <div class="mic-slit" aria-hidden="true"></div>
           </div>
         </div>
+        <div id="gameToast" class="game-toast hidden" role="status" aria-live="polite"></div>
       </section>
 
       <!-- Right: Companion Cards -->
       <aside class="side-stack">
         <!-- Player Profile Card -->
-        <section class="card">
+        <section class="card" id="playerCard">
           <div class="card-head">
             <h2 class="card-title">Your player</h2>
             <span class="card-meta">Scores post automatically</span>
@@ -145,7 +152,7 @@
             <button id="saveNameBtn" type="submit" class="btn-secondary">Save</button>
           </form>
 
-          <div id="onlineStatus" class="status-box">Pick a nickname, then press New Game.</div>
+          <div id="onlineStatus" class="status-box" role="status" aria-live="polite">Pick a nickname, then press New Game.</div>
 
           <div class="player-stats-row">
             <span>Your best: <strong id="playerBestStat">&ndash;</strong></span>
@@ -180,7 +187,7 @@
               <span id="liveSpeedBadge" class="speed-pill mono">Speed 1</span>
             </div>
             <p class="speed-caption">
-              Everyone starts at <strong>Speed 1</strong>. Speed goes up every <strong>4 apples</strong>, and each apple is worth your current speed.
+              Everyone starts slow at <strong>Speed 1</strong>. Speed increases gently every <strong>4 apples</strong>, your snake grows every <strong>2 apples</strong>, and each apple awards your current speed.
             </p>
           </div>
 
@@ -201,10 +208,10 @@
           <div class="cover-row">
             <span class="field-label no-margin">Xpress-on cover</span>
             <div class="cover-dots" role="group" aria-label="Phone Cover Color">
-              <button type="button" class="cover-dot active" data-set-cover="navy" style="background: linear-gradient(135deg, #2d405e, #151f30);" title="Midnight Blue"></button>
-              <button type="button" class="cover-dot" data-set-cover="silver" style="background: linear-gradient(135deg, #c6cdd7, #7a8392);" title="Arctic Silver"></button>
-              <button type="button" class="cover-dot" data-set-cover="yellow" style="background: linear-gradient(135deg, #e5b833, #9c720f);" title="Sahara Yellow"></button>
-              <button type="button" class="cover-dot" data-set-cover="red" style="background: linear-gradient(135deg, #a62b36, #571219);" title="Volcano Red"></button>
+              <button type="button" class="cover-dot active" data-set-cover="navy" aria-label="Midnight Blue cover" aria-pressed="true" style="background: linear-gradient(135deg, #2d405e, #151f30);" title="Midnight Blue"></button>
+              <button type="button" class="cover-dot" data-set-cover="silver" aria-label="Arctic Silver cover" aria-pressed="false" style="background: linear-gradient(135deg, #c6cdd7, #7a8392);" title="Arctic Silver"></button>
+              <button type="button" class="cover-dot" data-set-cover="yellow" aria-label="Sahara Yellow cover" aria-pressed="false" style="background: linear-gradient(135deg, #e5b833, #9c720f);" title="Sahara Yellow"></button>
+              <button type="button" class="cover-dot" data-set-cover="red" aria-label="Volcano Red cover" aria-pressed="false" style="background: linear-gradient(135deg, #a62b36, #571219);" title="Volcano Red"></button>
             </div>
           </div>
         </section>
@@ -239,6 +246,7 @@
               <span class="ctrl-keys">
                 <span class="kbd-chip">Enter</span>
                 <span class="kbd-chip">Space</span>
+                <span class="kbd-chip">P</span>
                 <span class="kbd-chip">5</span>
               </span>
             </div>
@@ -384,7 +392,7 @@
               <h2 class="card-title">How ranking works</h2>
             </div>
             <p class="rules-text">
-              <strong>Speed ramps up</strong> every 4 apples from Speed 1, and each apple is worth your current speed. Bonus critters appear every 5 apples for timed extra points.
+              <strong>Speed ramps up gently</strong> every 4 apples from a slow Speed 1, and your snake grows +1 every 2 apples. Each apple is worth your current speed, and bonus critters appear every 5 apples for timed extra points.
             </p>
             <p class="rules-text">
               Your highest score is shown on the leaderboard. Nicknames are locked to your browser key so nobody else can overwrite your spot.
@@ -395,8 +403,8 @@
     </main>
   </div>
 
-  <script src="./game.js"></script>
-  <script src="./firebase-config.js"></script>
-  <script src="./app.js"></script>
+  <script src="./game.js?v=2"></script>
+  <script src="./firebase-config.js?v=2"></script>
+  <script src="./app.js?v=2"></script>
 </body>
 </html>

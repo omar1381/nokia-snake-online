@@ -365,7 +365,7 @@
       hint: 'Four-blade barriers',
       solidBorder: false,
       walls: millWalls,
-      spawn: { x: 10, y: 4, dx: 1, dy: 0 },
+      spawn: { x: 9, y: 6, dx: 1, dy: 0 },
     };
 
     const railsWalls = [];
@@ -417,15 +417,36 @@
   // 4. GAME STATE
   // =========================================================================
   const STORAGE_KEY = 'nokia3310_snake2_online_best_v1';
+  const PREFS_KEY = 'nokia3310_snake2_prefs_v1';
+  const VALID_COVERS = ['navy', 'silver', 'yellow', 'red'];
+
+  function loadPrefs() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  const savedPrefs = loadPrefs();
+  if (typeof savedPrefs.backlightOn === 'boolean') backlightOn = savedPrefs.backlightOn;
+  if (typeof savedPrefs.soundOn === 'boolean') soundOn = savedPrefs.soundOn;
+
   let topScore = parseInt(localStorage.getItem(STORAGE_KEY) || '0', 10) || 0;
+  let coverName = VALID_COVERS.includes(savedPrefs.cover) ? savedPrefs.cover : 'navy';
 
   let screen = 'SPLASH'; // SPLASH | MENU | MAZE | TOP_SCORE | PLAYING | DYING | GAME_OVER
   let splashTimer = 0;
 
   let currentSpeed = START_SPEED;
-  let mazeIdx = 0;
+  let mazeIdx =
+    Number.isInteger(savedPrefs.mazeIdx) && savedPrefs.mazeIdx >= 0 && savedPrefs.mazeIdx < MAZES.length
+      ? savedPrefs.mazeIdx
+      : 0;
   let menuIndex = 0;
   let hasActiveGame = false;
+  let didWin = false;
 
   let snake = [];
   let dir = { dx: 1, dy: 0 };
@@ -447,7 +468,32 @@
   let callbacks = {
     onGameStart: null,
     onGameOver: null,
+    onStateChange: null,
   };
+
+  function savePrefs() {
+    try {
+      localStorage.setItem(
+        PREFS_KEY,
+        JSON.stringify({ backlightOn, soundOn, mazeIdx, cover: coverName })
+      );
+    } catch {}
+  }
+
+  function notifyPlayState(playing) {
+    if (typeof callbacks.onStateChange === 'function') {
+      callbacks.onStateChange({ playing });
+    }
+  }
+
+  function pauseToMenu() {
+    if (screen !== 'PLAYING') return;
+    if (isNewRecord) localStorage.setItem(STORAGE_KEY, String(topScore));
+    screen = 'MENU';
+    menuIndex = 0;
+    markDirty();
+    notifyPlayState(false);
+  }
 
   function keyOf(x, y) {
     return `${x},${y}`;
@@ -492,6 +538,7 @@
     bonus = null;
     graceActive = false;
     isNewRecord = false;
+    didWin = false;
     hasActiveGame = true;
     stepAccumulator = 0;
     activePlayMs = 0;
@@ -499,6 +546,7 @@
     screen = 'PLAYING';
     markDirty();
     syncSideUI();
+    notifyPlayState(true);
     if (typeof callbacks.onGameStart === 'function') {
       callbacks.onGameStart({ maze: mazeIdx, startSpeed: START_SPEED });
     }
@@ -525,9 +573,10 @@
     }
     if (free.length === 0) {
       food = null;
-      return;
+      return false;
     }
     food = free[Math.floor(Math.random() * free.length)];
+    return true;
   }
 
   function spawnBonus() {
@@ -556,6 +605,9 @@
     if (graceActive) {
       if (dir.dx === -ndx && dir.dy === -ndy) return;
       dirQueue = [{ dx: ndx, dy: ndy }];
+      // Make escaping a wall during grace period feel snappy instead of waiting a full tick
+      const stepMs = stepMsForSpeed(currentSpeed);
+      stepAccumulator = Math.max(stepAccumulator, stepMs - 45);
       return;
     }
     const ref = dirQueue.length > 0 ? dirQueue[dirQueue.length - 1] : dir;
@@ -601,7 +653,7 @@
         graceActive = true;
         return;
       }
-      triggerGameOver();
+      triggerGameOver(false);
       return;
     }
 
@@ -635,7 +687,16 @@
       } else {
         SFX.eat();
       }
-      spawnFood();
+      const spawned = spawnFood();
+      if (!spawned) {
+        if (score > topScore) {
+          topScore = score;
+          isNewRecord = true;
+          topScoreBadge.textContent = String(topScore).padStart(4, '0');
+        }
+        triggerGameOver(true);
+        return;
+      }
       if (foodsEaten % 5 === 0 && !bonus) {
         spawnBonus();
       }
@@ -662,17 +723,23 @@
     }
   }
 
-  function triggerGameOver() {
+  function triggerGameOver(victory = false) {
     hasActiveGame = false;
-    screen = 'DYING';
+    didWin = Boolean(victory);
+    screen = didWin ? 'GAME_OVER' : 'DYING';
     dyingFlashCount = 0;
     dyingTimer = 0;
     if (isNewRecord) {
       localStorage.setItem(STORAGE_KEY, String(topScore));
     }
-    SFX.crash();
+    if (didWin) {
+      SFX.highScore();
+    } else {
+      SFX.crash();
+    }
     markDirty();
     syncSideUI();
+    notifyPlayState(false);
 
     if (typeof callbacks.onGameOver === 'function') {
       callbacks.onGameOver({
@@ -682,6 +749,7 @@
         topSpeed: currentSpeed,
         maze: mazeIdx,
         durationMs: Math.max(300, Math.round(activePlayMs)),
+        victory: didWin,
       });
     }
   }
@@ -931,7 +999,7 @@
 
   function renderGameOver() {
     drawRect(2, 2, 80, 37, false, 1);
-    drawTextCentered('GAME OVER', 6, 1, FONT_5X7);
+    drawTextCentered(didWin ? 'VICTORY!' : 'GAME OVER', 6, 1, FONT_5X7);
     drawHLine(6, 15, 72, 1);
 
     drawTextCentered(`SCORE: ${score}`, 19, 1, FONT_3X5);
@@ -1036,10 +1104,7 @@
       else if (action === 'RIGHT') queueDirection(1, 0);
       else if (action === 'SELECT' || action === 'BACK') {
         SFX.key();
-        if (isNewRecord) localStorage.setItem(STORAGE_KEY, String(topScore));
-        screen = 'MENU';
-        menuIndex = 0;
-        markDirty();
+        pauseToMenu();
       }
       return;
     }
@@ -1076,6 +1141,7 @@
           screen = 'PLAYING';
           stepAccumulator = 0;
           markDirty();
+          notifyPlayState(true);
         } else if (chosen === 'new') {
           startNewGame();
         } else if (chosen === 'maze') {
@@ -1090,6 +1156,7 @@
         screen = 'PLAYING';
         stepAccumulator = 0;
         markDirty();
+        notifyPlayState(true);
       }
       return;
     }
@@ -1098,11 +1165,13 @@
       if (action === 'UP' || action === 'LEFT') {
         SFX.key();
         mazeIdx = (mazeIdx - 1 + MAZES.length) % MAZES.length;
+        savePrefs();
         syncSideUI();
         markDirty();
       } else if (action === 'DOWN' || action === 'RIGHT') {
         SFX.key();
         mazeIdx = (mazeIdx + 1) % MAZES.length;
+        savePrefs();
         syncSideUI();
         markDirty();
       } else if (action === 'SELECT' || action === 'BACK') {
@@ -1139,7 +1208,7 @@
     const k = e.key;
     const gameKeys = [
       'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
-      ' ', 'Enter', 'Escape', 'Backspace',
+      ' ', 'Enter', 'Escape', 'Backspace', 'p', 'P',
       'w', 'W', 'a', 'A', 's', 'S', 'd', 'D',
       '2', '4', '5', '6', '8', 'c', 'C', 'b', 'B', 'm', 'M', '*', '#',
     ];
@@ -1160,7 +1229,7 @@
     } else if (k === 'ArrowRight' || k === 'd' || k === 'D' || k === '6') {
       pulseButton(document.querySelector('[data-key="6"]'));
       handleAction('RIGHT');
-    } else if (k === 'Enter' || k === ' ' || k === '5') {
+    } else if (k === 'Enter' || k === ' ' || k === '5' || k === 'p' || k === 'P') {
       pulseButton(document.getElementById('btnNavi'));
       handleAction('SELECT');
     } else if (k === 'Escape' || k === 'Backspace' || k === 'c' || k === 'C') {
@@ -1175,11 +1244,20 @@
     }
   });
 
+  // Auto-pause if the player switches tabs, locks their phone, or backgrounds the browser
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) pauseToMenu();
+  });
+  window.addEventListener('blur', () => {
+    pauseToMenu();
+  });
+
   // Phone Hardware Buttons — fire immediately on pointerdown for zero touch latency
   function bindHardwareButton(el, fn) {
     if (!el) return;
     el.addEventListener('pointerdown', (e) => {
       e.preventDefault();
+      ensureAudio();
       el.blur();
       pulseButton(el);
       fn();
@@ -1209,6 +1287,7 @@
   let pointerStart = null;
   canvas.addEventListener('pointerdown', (e) => {
     e.preventDefault();
+    ensureAudio();
     pointerStart = { id: e.pointerId, x: e.clientX, y: e.clientY, swiped: false };
     if (canvas.setPointerCapture) {
       try { canvas.setPointerCapture(e.pointerId); } catch {}
@@ -1251,16 +1330,36 @@
   const mazeButtonsWrap = document.getElementById('mazeButtons');
   const phoneShell = document.getElementById('phoneShell');
 
-  function toggleBacklight() {
-    backlightOn = !backlightOn;
+  function applyCover(nextCover) {
+    coverName = VALID_COVERS.includes(nextCover) ? nextCover : 'navy';
+    phoneShell.dataset.cover = coverName;
+    document.querySelectorAll('[data-set-cover]').forEach((d) => {
+      const isSelected = d.dataset.setCover === coverName;
+      d.classList.toggle('active', isSelected);
+      d.setAttribute('aria-pressed', String(isSelected));
+    });
+  }
+
+  function applyBacklightUI() {
     lcdGlass.classList.toggle('backlight-on', backlightOn);
     backlightBtn.textContent = `Backlight: ${backlightOn ? 'On' : 'Off'}`;
+  }
+
+  function applySoundUI() {
+    soundBtn.textContent = `Sound: ${soundOn ? 'On' : 'Off'}`;
+  }
+
+  function toggleBacklight() {
+    backlightOn = !backlightOn;
+    applyBacklightUI();
+    savePrefs();
     markDirty();
   }
 
   function toggleSound() {
     soundOn = !soundOn;
-    soundBtn.textContent = `Sound: ${soundOn ? 'On' : 'Off'}`;
+    applySoundUI();
+    savePrefs();
   }
 
   function buildMazeButtons() {
@@ -1274,6 +1373,7 @@
       btn.addEventListener('click', (e) => {
         e.currentTarget.blur();
         mazeIdx = idx;
+        savePrefs();
         SFX.key();
         if (screen === 'PLAYING' || screen === 'GAME_OVER') {
           startNewGame();
@@ -1317,12 +1417,14 @@
   document.querySelectorAll('[data-set-cover]').forEach((dot) => {
     dot.addEventListener('click', (e) => {
       e.currentTarget.blur();
-      phoneShell.dataset.cover = dot.dataset.setCover;
-      document.querySelectorAll('[data-set-cover]').forEach((d) => d.classList.remove('active'));
-      dot.classList.add('active');
+      applyCover(dot.dataset.setCover);
+      savePrefs();
     });
   });
 
+  applyCover(coverName);
+  applyBacklightUI();
+  applySoundUI();
   buildMazeButtons();
   syncSideUI();
   markDirty();
@@ -1338,11 +1440,12 @@
     },
     setViewActive(active) {
       isViewActive = Boolean(active);
-      if (!isViewActive && screen === 'PLAYING') {
-        screen = 'MENU';
-        menuIndex = 0;
-        markDirty();
+      if (!isViewActive) {
+        pauseToMenu();
       }
+    },
+    isPlaying() {
+      return screen === 'PLAYING';
     },
     startNewGame,
   };

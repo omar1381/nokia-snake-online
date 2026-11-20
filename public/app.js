@@ -18,6 +18,7 @@
   const nicknameForm = document.getElementById('nicknameForm');
   const nicknameInput = document.getElementById('nicknameInput');
   const onlineStatus = document.getElementById('onlineStatus');
+  const gameToast = document.getElementById('gameToast');
   const playerBestStat = document.getElementById('playerBestStat');
   const playerRankStat = document.getElementById('playerRankStat');
   const miniLeaderboard = document.getElementById('miniLeaderboard');
@@ -58,6 +59,8 @@
   let playerKey = getOrCreatePlayerKey();
   let activeRunId = null;
   let activeRunPromise = null;
+  let pendingRun = null;
+  let failedSubmission = null;
   let lastUpdatedAt = Date.now();
 
   const filters = {
@@ -119,6 +122,25 @@
   function setStatus(html, tone = '') {
     onlineStatus.className = `status-box${tone ? ` ${tone}` : ''}`;
     onlineStatus.innerHTML = html;
+  }
+
+  function showToast(html, tone = '', action = null) {
+    if (!gameToast) return;
+    gameToast.className = `game-toast${tone ? ` ${tone}` : ''}`;
+    gameToast.innerHTML = `<span>${html}</span>`;
+    if (action && action.label && typeof action.onClick === 'function') {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'toast-action';
+      btn.textContent = action.label;
+      btn.addEventListener('click', action.onClick);
+      gameToast.appendChild(btn);
+    }
+  }
+
+  function hideToast() {
+    if (!gameToast) return;
+    gameToast.classList.add('hidden');
   }
 
   function updatePlayerSummaryUI(summary) {
@@ -221,6 +243,11 @@
 
   // Firebase Realtime Database store (works directly from GitHub Pages with no server!)
   const firebaseStore = (() => {
+    const CACHE_TTL_MS = 4000;
+    let cachedScores = null;
+    let cachedAt = 0;
+    let inflightScores = null;
+
     function toFbKey(lower) {
       return lower.replace(/_/g, '_u_').replace(/\./g, '_d_');
     }
@@ -238,10 +265,27 @@
       return data;
     }
 
-    async function fetchAllScores() {
-      const data = await fbReq('scores');
-      if (!data || typeof data !== 'object') return [];
-      return Object.values(data).filter((s) => s && typeof s === 'object' && typeof s.score === 'number');
+    async function fetchAllScores(force = false) {
+      if (!force && cachedScores && Date.now() - cachedAt < CACHE_TTL_MS) {
+        return cachedScores;
+      }
+      if (!force && inflightScores) {
+        return inflightScores;
+      }
+      inflightScores = fbReq('scores')
+        .then((data) => {
+          const list =
+            data && typeof data === 'object'
+              ? Object.values(data).filter((s) => s && typeof s === 'object' && typeof s.score === 'number')
+              : [];
+          cachedScores = list;
+          cachedAt = Date.now();
+          return list;
+        })
+        .finally(() => {
+          inflightScores = null;
+        });
+      return inflightScores;
     }
 
     async function ensurePlayer(rawName, rawKey) {
@@ -284,7 +328,7 @@
 
     async function submitScore(payload) {
       const canonicalName = await ensurePlayer(payload.name, payload.playerKey);
-      const existingScores = await fetchAllScores();
+      const existingScores = await fetchAllScores(true);
       const lower = canonicalName.toLowerCase();
       const prevBestAll = existingScores.reduce((m, s) => Math.max(m, s.score), 0);
       const prevPlayerBest = existingScores
@@ -311,6 +355,8 @@
       });
 
       const allScores = [...existingScores, entry];
+      cachedScores = allScores;
+      cachedAt = Date.now();
       const summary = summaryFromClientScores(allScores, entry.name);
       return {
         entry,
@@ -323,7 +369,7 @@
     }
 
     async function getLeaderboard(opts = {}) {
-      const scores = await fetchAllScores();
+      const scores = await fetchAllScores(Boolean(opts.force));
       return buildClientLeaderboard(scores, opts);
     }
 
@@ -454,6 +500,8 @@
     boardView.classList.toggle('hidden', !isBoard);
     tabPlay.classList.toggle('active', !isBoard);
     tabBoard.classList.toggle('active', isBoard);
+    tabPlay.setAttribute('aria-pressed', String(!isBoard));
+    tabBoard.setAttribute('aria-pressed', String(isBoard));
 
     if (window.NokiaSnakeGame) {
       window.NokiaSnakeGame.setViewActive(!isBoard);
@@ -495,6 +543,72 @@
   // =========================================================================
   // PLAYER PROFILE & SCORE SUBMISSION
   // =========================================================================
+  function focusNicknameField() {
+    const card = document.getElementById('playerCard');
+    if (card && card.scrollIntoView) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    setTimeout(() => nicknameInput.focus(), 180);
+  }
+
+  async function postScoreSubmission(submission) {
+    setStatus(`Posting score <strong>${submission.score}</strong>...`);
+    showToast(`Posting score <strong>${submission.score}</strong>...`);
+
+    try {
+      const result = await apiJson('/api/scores', {
+        method: 'POST',
+        body: JSON.stringify({
+          runId: submission.runId,
+          name: playerName,
+          playerKey,
+          score: submission.score,
+          foods: submission.foods,
+          length: submission.length,
+          topSpeed: submission.topSpeed,
+          maze: submission.maze,
+          durationMs: submission.durationMs,
+        }),
+      });
+
+      failedSubmission = null;
+      pendingRun = null;
+
+      updatePlayerSummaryUI({
+        bestScore: result.bestScore,
+        globalRank: result.globalRank,
+      });
+
+      const prefix = submission.victory ? 'PERFECT CLEAR! ' : '';
+      let msg;
+      if (result.isWorldRecord) {
+        msg = `${prefix}NEW WORLD RECORD! <strong>${submission.score}</strong> (#1 overall)`;
+      } else if (result.isPersonalBest) {
+        msg = `${prefix}New personal best: <strong>${submission.score}</strong> &middot; Rank #${result.globalRank}`;
+      } else {
+        msg = `${prefix}Posted <strong>${submission.score}</strong> (spd 1&rarr;${submission.topSpeed}). Best: ${result.bestScore} (#${result.globalRank})`;
+      }
+
+      setStatus(msg, 'ok');
+      showToast(msg, 'ok', {
+        label: 'Board',
+        onClick: () => setView('board'),
+      });
+
+      refreshLeaderboard();
+    } catch (err) {
+      failedSubmission = submission;
+      const errHtml = `Could not post score: ${escapeHtml(err.message)}`;
+      setStatus(errHtml, 'error');
+      showToast(errHtml, 'error', {
+        label: 'Retry',
+        onClick: () => {
+          if (failedSubmission) postScoreSubmission(failedSubmission);
+        },
+      });
+    }
+  }
+
   async function saveNickname(raw) {
     const cleaned = raw.trim();
     if (!cleaned) {
@@ -510,10 +624,20 @@
       nicknameInput.value = playerName;
       localStorage.setItem(STORAGE_NAME_KEY, playerName);
       updatePlayerSummaryUI(summary);
+
+      if (pendingRun) {
+        const toPost = pendingRun;
+        pendingRun = null;
+        await postScoreSubmission(toPost);
+        return;
+      }
+
       setStatus(`Playing as <strong>${escapeHtml(playerName)}</strong>. Press New Game!`, 'ok');
+      showToast(`Saved as <strong>${escapeHtml(playerName)}</strong>. Ready to play!`, 'ok');
       refreshLeaderboard();
     } catch (err) {
       setStatus(escapeHtml(err.message), 'error');
+      showToast(escapeHtml(err.message), 'error');
     }
   }
 
@@ -541,9 +665,16 @@
   // Wire game lifecycle callbacks
   if (window.NokiaSnakeGame) {
     window.NokiaSnakeGame.setCallbacks({
+      onStateChange({ playing }) {
+        isGameRunning = Boolean(playing);
+      },
+
       onGameStart({ maze }) {
         isGameRunning = true;
+        pendingRun = null;
+        failedSubmission = null;
         activeRunId = null;
+        hideToast();
         if (playerName) {
           setStatus(`Playing as <strong>${escapeHtml(playerName)}</strong> &middot; ${MAZE_NAMES[maze]}`, 'ok');
         } else {
@@ -566,63 +697,38 @@
 
       async onGameOver(run) {
         isGameRunning = false;
-        if (!playerName) {
-          if (run.score > 0) {
-            setStatus(`Scored <strong>${run.score}</strong>! Save a nickname above to rank on the leaderboard.`);
-          } else {
-            setStatus('Pick a nickname, then press New Game.');
-          }
-          return;
-        }
-
-        if (run.score <= 0) {
-          setStatus('No points this time. Eat some apples to get on the board!');
-          return;
-        }
-
-        setStatus(`Posting score <strong>${run.score}</strong>...`);
         const runId = activeRunId || (activeRunPromise ? await activeRunPromise : null);
         activeRunId = null;
         activeRunPromise = null;
 
-        if (!runId) {
-          setStatus('Could not start a validated session. Try starting a new game.', 'error');
+        if (run.score <= 0) {
+          const msg = 'No points this time. Eat some apples to get on the board!';
+          setStatus(msg);
+          showToast(msg);
           return;
         }
 
-        try {
-          const result = await apiJson('/api/scores', {
-            method: 'POST',
-            body: JSON.stringify({
-              runId,
-              name: playerName,
-              playerKey,
-              score: run.score,
-              foods: run.foods,
-              length: run.length,
-              topSpeed: run.topSpeed,
-              maze: run.maze,
-              durationMs: run.durationMs,
-            }),
-          });
-
-          updatePlayerSummaryUI({
-            bestScore: result.bestScore,
-            globalRank: result.globalRank,
-          });
-
-          if (result.isWorldRecord) {
-            setStatus(`NEW WORLD RECORD! <strong>${run.score}</strong> (#1 overall)`, 'ok');
-          } else if (result.isPersonalBest) {
-            setStatus(`New personal best: <strong>${run.score}</strong> &middot; Global rank #${result.globalRank}`, 'ok');
-          } else {
-            setStatus(`Posted <strong>${run.score}</strong> (speed 1&rarr;${run.topSpeed}). Best: ${result.bestScore} (#${result.globalRank})`, 'ok');
+        if (!playerName) {
+          if (runId) {
+            pendingRun = { runId, ...run };
           }
-
-          refreshLeaderboard();
-        } catch (err) {
-          setStatus(`Could not post score: ${escapeHtml(err.message)}`, 'error');
+          const msg = `Scored <strong>${run.score}</strong>! Save a nickname to post this run.`;
+          setStatus(msg);
+          showToast(msg, 'ok', {
+            label: 'Set name',
+            onClick: focusNicknameField,
+          });
+          return;
         }
+
+        if (!runId) {
+          const msg = 'Could not start a validated session. Try starting a new game.';
+          setStatus(msg, 'error');
+          showToast(msg, 'error');
+          return;
+        }
+
+        await postScoreSubmission({ runId, ...run });
       },
     });
   }

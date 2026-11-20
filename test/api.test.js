@@ -329,3 +329,46 @@ test('supports Supabase REST backend and persists scores across restarts', async
     assert.equal(me.body.globalRank, 1);
   });
 });
+
+test('serves PWA assets, handles HEAD requests, blocks path traversal, and enforces growth rate', async () => {
+  const manifestRes = await fetch(`${baseUrl}/manifest.webmanifest`);
+  assert.equal(manifestRes.status, 200);
+  assert.match(manifestRes.headers.get('content-type') || '', /manifest\+json/);
+  assert.equal(manifestRes.headers.get('x-content-type-options'), 'nosniff');
+
+  const iconRes = await fetch(`${baseUrl}/favicon.svg`);
+  assert.equal(iconRes.status, 200);
+  assert.match(iconRes.headers.get('content-type') || '', /image\/svg\+xml/);
+
+  const headRes = await fetch(`${baseUrl}/`, { method: 'HEAD' });
+  assert.equal(headRes.status, 200);
+  assert.equal(await headRes.text(), '');
+
+  const traversalRes = await fetch(`${baseUrl}/%2e%2e/package.json`);
+  assert.ok(traversalRes.status === 403 || traversalRes.status === 404);
+
+  const badEncodingRes = await fetch(`${baseUrl}/%E0%A4%A`);
+  assert.equal(badEncodingRes.status, 400);
+
+  // Reject length that does not match 5 + floor(foods / 2)
+  const run = await jsonReq('/api/runs/start', {
+    method: 'POST',
+    body: JSON.stringify({ maze: 0 }),
+  });
+  const wrongLen = await jsonReq('/api/scores', {
+    method: 'POST',
+    body: JSON.stringify({
+      runId: run.body.runId,
+      name: 'Kaito',
+      playerKey: 'kaito-secret-key-1234',
+      score: 12,
+      foods: 8,
+      length: 13, // old +1/apple length must be rejected now
+      topSpeed: 3,
+      maze: 0,
+      durationMs: 12000,
+    }),
+  });
+  assert.equal(wrongLen.status, 400);
+  assert.equal(wrongLen.body.code, 'INVALID_LENGTH');
+});
