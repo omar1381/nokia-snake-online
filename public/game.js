@@ -322,8 +322,8 @@
   const APPLES_PER_GROWTH = 2; // +1 segment every 2 apples for slower, smoother elongation
 
   function stepMsForSpeed(spd) {
-    // Classic slow Nokia start (380ms/step), speeding up little by little (~3% per tier) down to 95ms
-    return Math.max(95, Math.round(380 * Math.pow(0.97, spd - 1)));
+    // Comfortable Nokia start (300ms/step), speeding up gently (~3.5% per tier) down to 88ms
+    return Math.max(88, Math.round(300 * Math.pow(0.965, spd - 1)));
   }
 
   function buildMazes() {
