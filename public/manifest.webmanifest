@@ -1,18 +1,54 @@
 {
+  "id": "/nokia-snake-online/",
   "name": "Snake II — Nokia 3310 Online",
   "short_name": "Nokia Snake II",
-  "description": "Authentic Nokia 3310 Snake II with progressive speed and a live Top Players leaderboard.",
+  "description": "Authentic Nokia 3310 Snake II with smooth 60 FPS gliding, progressive speed, 6 classic mazes, and a live global Top Players leaderboard.",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#121512",
   "theme_color": "#121512",
   "orientation": "portrait-primary",
+  "categories": ["games", "entertainment"],
   "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
     {
       "src": "./favicon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "./og-image.png",
+      "sizes": "1200x630",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Nokia 3310 Snake II Online monochrome LCD display"
     }
   ]
 }

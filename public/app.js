@@ -124,23 +124,65 @@
     onlineStatus.innerHTML = html;
   }
 
-  function showToast(html, tone = '', action = null) {
+  async function shareGame(runInfo = null) {
+    const shareUrl = 'https://omar1381.github.io/nokia-snake-online/';
+    const text = runInfo
+      ? `I scored ${runInfo.score}${runInfo.rank ? ` (#${runInfo.rank})` : ''} in Nokia 3310 Snake II Online! Can you beat me?`
+      : 'Play classic Nokia 3310 Snake II Online with a live global Top Players leaderboard!';
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Snake II — Nokia 3310 Online',
+          text,
+          url: shareUrl,
+        });
+        return;
+      } catch (err) {
+        if (err && err.name === 'AbortError') return;
+      }
+    }
+
+    const fullMsg = `${text} ${shareUrl}`;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(fullMsg);
+        showToast('Share link copied! Send it to friends.', 'ok');
+        return;
+      } catch {}
+    }
+    window.prompt('Copy and share with friends:', fullMsg);
+  }
+
+  function showToast(html, tone = '', actions = null) {
     if (!gameToast) return;
     gameToast.className = `game-toast${tone ? ` ${tone}` : ''}`;
     gameToast.innerHTML = `<span>${html}</span>`;
-    if (action && action.label && typeof action.onClick === 'function') {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'toast-action';
-      btn.textContent = action.label;
-      btn.addEventListener('click', action.onClick);
-      gameToast.appendChild(btn);
+    const list = Array.isArray(actions) ? actions : actions ? [actions] : [];
+    const valid = list.filter((a) => a && a.label && typeof a.onClick === 'function');
+    if (valid.length > 0) {
+      const wrap = document.createElement('span');
+      wrap.className = 'toast-actions';
+      for (const action of valid) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'toast-action';
+        btn.textContent = action.label;
+        btn.addEventListener('click', action.onClick);
+        wrap.appendChild(btn);
+      }
+      gameToast.appendChild(wrap);
     }
   }
 
   function hideToast() {
     if (!gameToast) return;
     gameToast.classList.add('hidden');
+  }
+
+  const shareGameBtn = document.getElementById('shareGameBtn');
+  if (shareGameBtn) {
+    shareGameBtn.addEventListener('click', () => shareGame(null));
   }
 
   function updatePlayerSummaryUI(summary) {
@@ -590,10 +632,16 @@
       }
 
       setStatus(msg, 'ok');
-      showToast(msg, 'ok', {
-        label: 'Board',
-        onClick: () => setView('board'),
-      });
+      showToast(msg, 'ok', [
+        {
+          label: 'Share',
+          onClick: () => shareGame({ score: submission.score, rank: result.globalRank }),
+        },
+        {
+          label: 'Board',
+          onClick: () => setView('board'),
+        },
+      ]);
 
       refreshLeaderboard();
     } catch (err) {

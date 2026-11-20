@@ -335,6 +335,22 @@ test('serves PWA assets, handles HEAD requests, blocks path traversal, and enfor
   assert.equal(manifestRes.status, 200);
   assert.match(manifestRes.headers.get('content-type') || '', /manifest\+json/);
   assert.equal(manifestRes.headers.get('x-content-type-options'), 'nosniff');
+  const manifestJson = await manifestRes.json();
+  assert.ok(manifestJson.icons.some((i) => i.sizes === '192x192' && i.type === 'image/png'));
+  assert.ok(manifestJson.icons.some((i) => i.sizes === '512x512' && i.type === 'image/png'));
+
+  const swRes = await fetch(`${baseUrl}/sw.js`);
+  assert.equal(swRes.status, 200);
+  assert.match(await swRes.text(), /CACHE_NAME/);
+
+  const privacyRes = await fetch(`${baseUrl}/privacy.html`);
+  assert.equal(privacyRes.status, 200);
+  assert.match(await privacyRes.text(), /Privacy Policy/);
+
+  const icon192 = await fetch(`${baseUrl}/icon-192.png`);
+  assert.equal(icon192.status, 200);
+  const icon512 = await fetch(`${baseUrl}/icon-512.png`);
+  assert.equal(icon512.status, 200);
 
   const iconRes = await fetch(`${baseUrl}/favicon.svg`);
   assert.equal(iconRes.status, 200);

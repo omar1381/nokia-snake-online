@@ -24,8 +24,9 @@
   <meta name="twitter:description" content="Play authentic Nokia 3310 Snake II online with a live global Top Players leaderboard." />
   <meta name="twitter:image" content="https://omar1381.github.io/nokia-snake-online/og-image.png" />
   <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <link rel="apple-touch-icon" href="./icon-192.png" />
   <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="stylesheet" href="./styles.css?v=3" />
+  <link rel="stylesheet" href="./styles.css?v=4" />
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -427,7 +428,7 @@
               <h2 class="card-title">How ranking works</h2>
             </div>
             <p class="rules-text">
-              <strong>Speed ramps up gently</strong> every 4 apples from a slow Speed 1, and your snake grows +1 every 2 apples. Each apple is worth your current speed, and bonus critters appear every 5 apples for timed extra points.
+              <strong>Speed ramps up</strong> every 4 apples from Speed 1, and your snake grows +1 every 2 apples. Each apple is worth your current speed, and bonus critters appear every 5 apples for timed extra points.
             </p>
             <p class="rules-text">
               Your highest score is shown on the leaderboard. Nicknames are locked to your browser key so nobody else can overwrite your spot.
@@ -436,10 +437,23 @@
         </aside>
       </section>
     </main>
+
+    <footer class="site-footer">
+      <button type="button" id="shareGameBtn" class="link-btn">Share game with friends</button>
+      <span aria-hidden="true">&middot;</span>
+      <a href="./privacy.html" class="footer-link">Privacy Policy</a>
+    </footer>
   </div>
 
   <script src="./game.js?v=6"></script>
   <script src="./firebase-config.js?v=2"></script>
-  <script src="./app.js?v=2"></script>
+  <script src="./app.js?v=3"></script>
+  <script>
+    if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('./sw.js').catch(function () {});
+      });
+    }
+  </script>
 </body>
 </html>
