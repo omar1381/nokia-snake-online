@@ -536,10 +536,13 @@
     }
   }
 
+  let isGameRunning = false;
+
   // Wire game lifecycle callbacks
   if (window.NokiaSnakeGame) {
     window.NokiaSnakeGame.setCallbacks({
       onGameStart({ maze }) {
+        isGameRunning = true;
         activeRunId = null;
         if (playerName) {
           setStatus(`Playing as <strong>${escapeHtml(playerName)}</strong> &middot; ${MAZE_NAMES[maze]}`, 'ok');
@@ -562,6 +565,7 @@
       },
 
       async onGameOver(run) {
+        isGameRunning = false;
         if (!playerName) {
           if (run.score > 0) {
             setStatus(`Scored <strong>${run.score}</strong>! Save a nickname above to rank on the leaderboard.`);
@@ -778,6 +782,7 @@
   }
 
   function updateAgoLabel() {
+    if (currentView !== 'board') return;
     const secs = Math.max(0, Math.floor((Date.now() - lastUpdatedAt) / 1000));
     updatedAgoEl.textContent = `Updated ${secs}s ago`;
   }
@@ -807,15 +812,15 @@
     }, 150);
   });
 
-  // Live updates (SSE on Node server, 10s polling on Firebase)
+  // Live updates (SSE on Node server, 12s polling on Firebase when not mid-game)
   function connectEvents() {
     if (useFirebaseMode) {
       setInterval(() => {
-        if (document.visibilityState === 'visible') {
+        if (document.visibilityState === 'visible' && !isGameRunning) {
           refreshLeaderboard();
           refreshMySummary();
         }
-      }, 10000);
+      }, 12000);
       return;
     }
     if (useLocalMode || typeof EventSource === 'undefined') return;

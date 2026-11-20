@@ -174,41 +174,66 @@
     }
   }
 
+  // Pre-render the static 84x48 background + faint ghost pixels once per backlight state
+  // so flushLCD does 1 drawImage + 2 batched path fills instead of ~4,300 fillRect calls.
+  function createLcdBaseCanvas(isLit) {
+    const off = document.createElement('canvas');
+    off.width = LCD_W * SCALE;
+    off.height = LCD_H * SCALE;
+    const octx = off.getContext('2d');
+    octx.fillStyle = isLit ? '#99c92b' : '#94aa6c';
+    octx.fillRect(0, 0, off.width, off.height);
+    octx.fillStyle = isLit ? 'rgba(20, 42, 6, 0.065)' : 'rgba(22, 34, 14, 0.06)';
+    octx.beginPath();
+    for (let y = 0; y < LCD_H; y++) {
+      const py = y * SCALE;
+      for (let x = 0; x < LCD_W; x++) {
+        octx.rect(x * SCALE, py, SCALE - 1, SCALE - 1);
+      }
+    }
+    octx.fill();
+    return off;
+  }
+
+  const lcdBaseLit = createLcdBaseCanvas(true);
+  const lcdBaseDim = createLcdBaseCanvas(false);
+  let lcdDirty = true;
+
+  function markDirty() {
+    lcdDirty = true;
+  }
+
   function flushLCD() {
-    const bgColor = backlightOn ? '#99c92b' : '#94aa6c';
-    const ghostColor = backlightOn ? 'rgba(20, 42, 6, 0.065)' : 'rgba(22, 34, 14, 0.06)';
     const shadowColor = backlightOn ? 'rgba(18, 40, 6, 0.16)' : 'rgba(20, 32, 12, 0.15)';
     const inkColor = backlightOn ? '#142608' : '#1b2613';
 
-    ctx.fillStyle = bgColor;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.fillStyle = ghostColor;
-    for (let y = 0; y < LCD_H; y++) {
-      for (let x = 0; x < LCD_W; x++) {
-        if (!fb[y * LCD_W + x]) {
-          ctx.fillRect(x * SCALE, y * SCALE, SCALE - 1, SCALE - 1);
-        }
-      }
-    }
+    ctx.drawImage(backlightOn ? lcdBaseLit : lcdBaseDim, 0, 0);
 
     ctx.fillStyle = shadowColor;
+    ctx.beginPath();
     for (let y = 0; y < LCD_H; y++) {
+      const row = y * LCD_W;
+      const py = y * SCALE + 1;
       for (let x = 0; x < LCD_W; x++) {
-        if (fb[y * LCD_W + x]) {
-          ctx.fillRect(x * SCALE + 1, y * SCALE + 1, SCALE - 1, SCALE - 1);
+        if (fb[row + x]) {
+          ctx.rect(x * SCALE + 1, py, SCALE - 1, SCALE - 1);
         }
       }
     }
+    ctx.fill();
 
     ctx.fillStyle = inkColor;
+    ctx.beginPath();
     for (let y = 0; y < LCD_H; y++) {
+      const row = y * LCD_W;
+      const py = y * SCALE;
       for (let x = 0; x < LCD_W; x++) {
-        if (fb[y * LCD_W + x]) {
-          ctx.fillRect(x * SCALE, y * SCALE, SCALE - 1, SCALE - 1);
+        if (fb[row + x]) {
+          ctx.rect(x * SCALE, py, SCALE - 1, SCALE - 1);
         }
       }
     }
+    ctx.fill();
   }
 
   // =========================================================================
@@ -296,8 +321,8 @@
   const APPLES_PER_SPEED_UP = 4;
 
   function stepMsForSpeed(spd) {
-    // Smooth progressive speed ramp: starts brisk at 175ms, approaches 52ms at high speeds
-    return Math.max(52, Math.round(175 * Math.pow(0.91, spd - 1)));
+    // Gentle progressive speed ramp: relaxed 235ms start, smooth ~4% speedup per tier down to 72ms
+    return Math.max(72, Math.round(235 * Math.pow(0.96, spd - 1)));
   }
 
   function buildMazes() {
@@ -471,6 +496,7 @@
     activePlayMs = 0;
     spawnFood();
     screen = 'PLAYING';
+    markDirty();
     syncSideUI();
     if (typeof callbacks.onGameStart === 'function') {
       callbacks.onGameStart({ maze: mazeIdx, startSpeed: START_SPEED });
@@ -602,7 +628,7 @@
       if (nextSpeed > currentSpeed) {
         currentSpeed = nextSpeed;
         SFX.speedUp();
-        syncSideUI();
+        liveSpeedBadge.textContent = `Speed ${currentSpeed}`;
       } else {
         SFX.eat();
       }
@@ -629,8 +655,7 @@
     if (score > topScore) {
       topScore = score;
       isNewRecord = true;
-      localStorage.setItem(STORAGE_KEY, String(topScore));
-      syncSideUI();
+      topScoreBadge.textContent = String(topScore).padStart(4, '0');
     }
   }
 
@@ -639,7 +664,11 @@
     screen = 'DYING';
     dyingFlashCount = 0;
     dyingTimer = 0;
+    if (isNewRecord) {
+      localStorage.setItem(STORAGE_KEY, String(topScore));
+    }
     SFX.crash();
+    markDirty();
     syncSideUI();
 
     if (typeof callbacks.onGameOver === 'function') {
@@ -931,19 +960,28 @@
   // =========================================================================
   // 6. MAIN LOOP
   // =========================================================================
+  let lastSplashPhase = -1;
+
   function loop(now) {
     const dt = Math.min(100, now - lastFrameTime);
     lastFrameTime = now;
 
     if (screen === 'SPLASH') {
       splashTimer += dt;
+      const phase = Math.floor(splashTimer / 450) % 2;
+      if (phase !== lastSplashPhase) {
+        lastSplashPhase = phase;
+        markDirty();
+      }
     } else if (screen === 'PLAYING') {
       activePlayMs += dt;
       stepAccumulator += dt;
-      const stepMs = stepMsForSpeed(currentSpeed);
+      let stepMs = stepMsForSpeed(currentSpeed);
       while (stepAccumulator >= stepMs && screen === 'PLAYING') {
         stepAccumulator -= stepMs;
         stepGame();
+        markDirty();
+        stepMs = stepMsForSpeed(currentSpeed);
       }
     } else if (screen === 'DYING') {
       dyingTimer += dt;
@@ -954,10 +992,14 @@
           screen = 'GAME_OVER';
           if (isNewRecord && score > 0) SFX.highScore();
         }
+        markDirty();
       }
     }
 
-    render();
+    if (lcdDirty) {
+      lcdDirty = false;
+      render();
+    }
     requestAnimationFrame(loop);
   }
 
@@ -980,6 +1022,7 @@
       SFX.key();
       screen = 'MENU';
       menuIndex = 0;
+      markDirty();
       return;
     }
 
@@ -990,8 +1033,10 @@
       else if (action === 'RIGHT') queueDirection(1, 0);
       else if (action === 'SELECT' || action === 'BACK') {
         SFX.key();
+        if (isNewRecord) localStorage.setItem(STORAGE_KEY, String(topScore));
         screen = 'MENU';
         menuIndex = 0;
+        markDirty();
       }
       return;
     }
@@ -1006,6 +1051,7 @@
         SFX.key();
         screen = 'MENU';
         menuIndex = 0;
+        markDirty();
       }
       return;
     }
@@ -1015,26 +1061,32 @@
       if (action === 'UP') {
         SFX.key();
         menuIndex = (menuIndex - 1 + items.length) % items.length;
+        markDirty();
       } else if (action === 'DOWN') {
         SFX.key();
         menuIndex = (menuIndex + 1) % items.length;
+        markDirty();
       } else if (action === 'SELECT') {
         SFX.key();
         const chosen = items[menuIndex].id;
         if (chosen === 'continue') {
           screen = 'PLAYING';
           stepAccumulator = 0;
+          markDirty();
         } else if (chosen === 'new') {
           startNewGame();
         } else if (chosen === 'maze') {
           screen = 'MAZE';
+          markDirty();
         } else if (chosen === 'top') {
           screen = 'TOP_SCORE';
+          markDirty();
         }
       } else if (action === 'BACK' && hasActiveGame) {
         SFX.key();
         screen = 'PLAYING';
         stepAccumulator = 0;
+        markDirty();
       }
       return;
     }
@@ -1044,13 +1096,16 @@
         SFX.key();
         mazeIdx = (mazeIdx - 1 + MAZES.length) % MAZES.length;
         syncSideUI();
+        markDirty();
       } else if (action === 'DOWN' || action === 'RIGHT') {
         SFX.key();
         mazeIdx = (mazeIdx + 1) % MAZES.length;
         syncSideUI();
+        markDirty();
       } else if (action === 'SELECT' || action === 'BACK') {
         SFX.key();
         screen = 'MENU';
+        markDirty();
       }
       return;
     }
@@ -1059,6 +1114,7 @@
       if (action === 'SELECT' || action === 'BACK') {
         SFX.key();
         screen = 'MENU';
+        markDirty();
       }
     }
   }
@@ -1116,15 +1172,24 @@
     }
   });
 
-  // Phone Hardware Buttons
-  document.getElementById('btnNavi').addEventListener('click', (e) => { e.currentTarget.blur(); handleAction('SELECT'); });
-  document.getElementById('btnC').addEventListener('click', (e) => { e.currentTarget.blur(); handleAction('BACK'); });
-  document.getElementById('btnUp').addEventListener('click', (e) => { e.currentTarget.blur(); handleAction('UP'); });
-  document.getElementById('btnDown').addEventListener('click', (e) => { e.currentTarget.blur(); handleAction('DOWN'); });
+  // Phone Hardware Buttons — fire immediately on pointerdown for zero touch latency
+  function bindHardwareButton(el, fn) {
+    if (!el) return;
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      el.blur();
+      pulseButton(el);
+      fn();
+    });
+  }
+
+  bindHardwareButton(document.getElementById('btnNavi'), () => handleAction('SELECT'));
+  bindHardwareButton(document.getElementById('btnC'), () => handleAction('BACK'));
+  bindHardwareButton(document.getElementById('btnUp'), () => handleAction('UP'));
+  bindHardwareButton(document.getElementById('btnDown'), () => handleAction('DOWN'));
 
   document.querySelectorAll('.num-key').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.currentTarget.blur();
+    bindHardwareButton(btn, () => {
       const key = btn.dataset.key;
       if (key === '2') handleAction('UP');
       else if (key === '8') handleAction('DOWN');
@@ -1137,25 +1202,39 @@
     });
   });
 
-  // Touch / Swipe directly on the LCD
+  // Instant Touch / Swipe directly on the LCD (turns immediately on drag, supports chained swipes)
   let pointerStart = null;
   canvas.addEventListener('pointerdown', (e) => {
-    pointerStart = { x: e.clientX, y: e.clientY };
+    e.preventDefault();
+    pointerStart = { id: e.pointerId, x: e.clientX, y: e.clientY, swiped: false };
+    if (canvas.setPointerCapture) {
+      try { canvas.setPointerCapture(e.pointerId); } catch {}
+    }
   });
-  canvas.addEventListener('pointerup', (e) => {
-    if (!pointerStart) return;
+  canvas.addEventListener('pointermove', (e) => {
+    if (!pointerStart || e.pointerId !== pointerStart.id) return;
     const dx = e.clientX - pointerStart.x;
     const dy = e.clientY - pointerStart.y;
-    pointerStart = null;
-    if (Math.hypot(dx, dy) < 16) {
-      handleAction('SELECT');
-      return;
-    }
+    if (Math.hypot(dx, dy) < 18) return;
     if (Math.abs(dx) > Math.abs(dy)) {
       handleAction(dx > 0 ? 'RIGHT' : 'LEFT');
     } else {
       handleAction(dy > 0 ? 'DOWN' : 'UP');
     }
+    pointerStart.x = e.clientX;
+    pointerStart.y = e.clientY;
+    pointerStart.swiped = true;
+  });
+  canvas.addEventListener('pointerup', (e) => {
+    if (!pointerStart || e.pointerId !== pointerStart.id) return;
+    const wasSwiped = pointerStart.swiped;
+    pointerStart = null;
+    if (!wasSwiped) {
+      handleAction('SELECT');
+    }
+  });
+  canvas.addEventListener('pointercancel', () => {
+    pointerStart = null;
   });
 
   // =========================================================================
@@ -1173,6 +1252,7 @@
     backlightOn = !backlightOn;
     lcdGlass.classList.toggle('backlight-on', backlightOn);
     backlightBtn.textContent = `Backlight: ${backlightOn ? 'On' : 'Off'}`;
+    markDirty();
   }
 
   function toggleSound() {
@@ -1196,6 +1276,7 @@
           startNewGame();
         } else {
           syncSideUI();
+          markDirty();
         }
       });
       mazeButtonsWrap.appendChild(btn);
@@ -1241,6 +1322,7 @@
 
   buildMazeButtons();
   syncSideUI();
+  markDirty();
   requestAnimationFrame(loop);
 
   window.NokiaSnakeGame = {
@@ -1255,6 +1337,7 @@
       if (!isViewActive && screen === 'PLAYING') {
         screen = 'MENU';
         menuIndex = 0;
+        markDirty();
       }
     },
     startNewGame,

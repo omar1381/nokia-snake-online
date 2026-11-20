@@ -1090,6 +1090,11 @@ input[type="search"]:focus,
   cursor: pointer;
 }
 
+.nokia-body button {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
 .nav-cluster {
   margin-top: 10px;
   display: flex;
