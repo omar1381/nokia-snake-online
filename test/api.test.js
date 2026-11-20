@@ -79,7 +79,7 @@ test('validates runs, progressive speed, and updates Top Players leaderboard', a
   assert.equal(run1.status, 201);
   assert.equal(run1.body.startSpeed, 1);
 
-  // 8 apples -> speed 1 (4 apples = 4) + speed 2 (4 apples = 8) = 12, topSpeed = 1 + floor(8/4) = 3, length = 13
+  // 8 apples -> speed 1 (4 apples = 4) + speed 2 (4 apples = 8) = 12, topSpeed = 1 + floor(8/4) = 3, length = 5 + floor(8/2) = 9
   const sub1 = await jsonReq('/api/scores', {
     method: 'POST',
     body: JSON.stringify({
@@ -88,7 +88,7 @@ test('validates runs, progressive speed, and updates Top Players leaderboard', a
       playerKey: 'kaito-secret-key-1234',
       score: 12,
       foods: 8,
-      length: 13,
+      length: 9,
       topSpeed: 3,
       maze: 0,
       durationMs: 14500,
@@ -107,7 +107,7 @@ test('validates runs, progressive speed, and updates Top Players leaderboard', a
       playerKey: 'kaito-secret-key-1234',
       score: 12,
       foods: 8,
-      length: 13,
+      length: 9,
       topSpeed: 3,
       maze: 0,
       durationMs: 14500,
@@ -129,7 +129,7 @@ test('validates runs, progressive speed, and updates Top Players leaderboard', a
       playerKey: 'cheater-key-12345678',
       score: 50,
       foods: 4,
-      length: 9,
+      length: 7,
       topSpeed: 9,
       maze: 1,
       durationMs: 5000,
@@ -143,7 +143,7 @@ test('validates runs, progressive speed, and updates Top Players leaderboard', a
     method: 'POST',
     body: JSON.stringify({ maze: 1 }),
   });
-  // 16 apples -> speeds 1,2,3,4 (4 each) = 4+8+12+16 = 40, plus 1 bonus critter -> e.g. 68, topSpeed = 5, length = 21
+  // 16 apples -> speeds 1,2,3,4 (4 each) = 4+8+12+16 = 40, plus 1 bonus critter -> e.g. 68, topSpeed = 5, length = 5 + floor(16/2) = 13
   const sub2 = await jsonReq('/api/scores', {
     method: 'POST',
     body: JSON.stringify({
@@ -152,7 +152,7 @@ test('validates runs, progressive speed, and updates Top Players leaderboard', a
       playerKey: 'queen-secret-key-1234',
       score: 68,
       foods: 16,
-      length: 21,
+      length: 13,
       topSpeed: 5,
       maze: 1,
       durationMs: 32000,
@@ -304,7 +304,7 @@ test('supports Supabase REST backend and persists scores across restarts', async
         playerKey: 'omar-secret-key-12345',
         score: 12,
         foods: 8,
-        length: 13,
+        length: 9,
         topSpeed: 3,
         maze: 2,
         durationMs: 18000,

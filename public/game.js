@@ -319,6 +319,7 @@
 
   const START_SPEED = 1;
   const APPLES_PER_SPEED_UP = 4;
+  const APPLES_PER_GROWTH = 2; // +1 segment every 2 apples for slower, smoother elongation
 
   function stepMsForSpeed(spd) {
     // Gentle progressive speed ramp: relaxed 235ms start, smooth ~4% speedup per tier down to 72ms
@@ -615,9 +616,11 @@
       (nextPos.x === bonus.x + 1 && nextPos.y === bonus.y)
     );
 
+    const shouldGrow = ateFood && (foodsEaten + 1) % APPLES_PER_GROWTH === 0;
+
     snake.unshift({ x: nextPos.x, y: nextPos.y, bulge: ateFood || ateBonus });
 
-    if (!ateFood) {
+    if (!shouldGrow) {
       snake.pop();
     }
 
@@ -1329,6 +1332,7 @@
     MAZES,
     START_SPEED,
     APPLES_PER_SPEED_UP,
+    APPLES_PER_GROWTH,
     setCallbacks(next) {
       callbacks = { ...callbacks, ...next };
     },
