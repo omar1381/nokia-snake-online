@@ -320,11 +320,14 @@
       if (!force && inflightScores) {
         return inflightScores;
       }
+      const HIDDEN_SCORE_IDS = new Set(['1795194681542-test10k']);
       inflightScores = fbReq('scores')
         .then((data) => {
           const list =
             data && typeof data === 'object'
-              ? Object.values(data).filter((s) => s && typeof s === 'object' && typeof s.score === 'number')
+              ? Object.values(data).filter(
+                  (s) => s && typeof s === 'object' && typeof s.score === 'number' && !HIDDEN_SCORE_IDS.has(s.id)
+                )
               : [];
           cachedScores = list;
           cachedAt = Date.now();
